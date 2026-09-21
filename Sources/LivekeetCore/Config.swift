@@ -1,6 +1,10 @@
 import Foundation
 import TOMLKit
 
+public enum DiarizationEngine: String, CaseIterable, Sendable {
+    case sortformer, wespeaker, pyannote
+}
+
 // MARK: - LivekeetConfig
 
 public struct LivekeetConfig: Sendable {
@@ -18,6 +22,13 @@ public struct LivekeetConfig: Sendable {
     public var enableCorrection: Bool
     public var correctionPrompt: String
     public var correctionModel: String
+    public var correctionSystemPrompt: String
+    public var correctionTimeout: Double
+    public var corrections: [String: String]
+    public var inputDevice: String?
+    public var diarizationEngine: DiarizationEngine
+    public var pythonExecutable: String
+    public var pyannoteToken: String?
 
     public init(
         outputDirectory: String = "",
@@ -33,7 +44,14 @@ public struct LivekeetConfig: Sendable {
         disableDiarization: Bool = false,
         enableCorrection: Bool = false,
         correctionPrompt: String = CorrectionPromptBuilder.defaultBasePrompt,
-        correctionModel: String = CorrectionPromptBuilder.defaultModel
+        correctionModel: String = CorrectionPromptBuilder.defaultModel,
+        correctionSystemPrompt: String = CorrectionPromptBuilder.defaultSystemPrompt,
+        correctionTimeout: Double = 120,
+        corrections: [String: String] = [:],
+        inputDevice: String? = nil,
+        diarizationEngine: DiarizationEngine = .sortformer,
+        pythonExecutable: String = "python3",
+        pyannoteToken: String? = nil
     ) {
         self.outputDirectory = outputDirectory
         self.filenamePattern = filenamePattern
@@ -49,6 +67,13 @@ public struct LivekeetConfig: Sendable {
         self.enableCorrection = enableCorrection
         self.correctionPrompt = correctionPrompt
         self.correctionModel = correctionModel
+        self.correctionSystemPrompt = correctionSystemPrompt
+        self.correctionTimeout = correctionTimeout
+        self.corrections = corrections
+        self.inputDevice = inputDevice
+        self.diarizationEngine = diarizationEngine
+        self.pythonExecutable = pythonExecutable
+        self.pyannoteToken = pyannoteToken
     }
 
     // MARK: - Computed Properties
@@ -74,39 +99,74 @@ public struct LivekeetConfig: Sendable {
 
     // MARK: - Load
 
-    public static func load() throws -> LivekeetConfig {
-        var config = LivekeetConfig()
-
-        let path = configFile.path
-        guard FileManager.default.fileExists(atPath: path) else {
-            return config
+    public static func load(from url: URL = configFile) throws -> LivekeetConfig {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return LivekeetConfig(disableDiarization: true)
         }
+        return try parse(String(contentsOf: url, encoding: .utf8))
+    }
 
-        let content = try String(contentsOfFile: path, encoding: .utf8)
+    public static func parse(_ content: String) throws -> LivekeetConfig {
+        var config = LivekeetConfig(disableDiarization: true)
         let toml = try TOMLTable(string: content)
-
-        if let output = toml["output"] as? TOMLTable {
-            if let dir = output["directory"] as? String {
-                config.outputDirectory = dir
-            }
-            if let filename = output["filename"] as? String {
-                config.filenamePattern = filename
+        if let output = toml["output"]?.table {
+            config.outputDirectory = output["directory"]?.string ?? config.outputDirectory
+            config.filenamePattern = output["filename"]?.string ?? config.filenamePattern
+        }
+        if let speaker = toml["speaker"]?.table {
+            config.speakerName = speaker["name"]?.string ?? config.speakerName
+        }
+        if let defaults = toml["defaults"]?.table {
+            config.defaultModel = defaults["model"]?.string ?? config.defaultModel
+            config.disableDiarization = !(defaults["diarize"]?.bool ?? false)
+            config.inputDevice = defaults["device"]?.string
+            if let engine = defaults["engine"]?.string {
+                guard let parsed = DiarizationEngine(rawValue: engine) else {
+                    throw ConfigError.invalidEngine(engine)
+                }
+                config.diarizationEngine = parsed
+                if parsed == .pyannote { config.disableDiarization = false }
             }
         }
-
-        if let speaker = toml["speaker"] as? TOMLTable {
-            if let name = speaker["name"] as? String {
-                config.speakerName = name
+        if let cleanup = toml["cleanup"]?.table {
+            config.enableCorrection = cleanup["enabled"]?.bool ?? false
+            config.correctionModel = cleanup["model"]?.string ?? config.correctionModel
+            if let prompt = cleanup["system_prompt"]?.string, !prompt.isEmpty {
+                // Keep the batch JSON response contract while honoring user cleanup instructions.
+                config.correctionSystemPrompt = prompt + "\n" + CorrectionPromptBuilder.defaultSystemPrompt
+            }
+            config.correctionPrompt = cleanup["prompt"]?.string ?? config.correctionPrompt
+            if let timeout = cleanup["timeout_s"]?.double {
+                config.correctionTimeout = timeout
+            } else if let timeout = cleanup["timeout_s"]?.int {
+                config.correctionTimeout = Double(timeout)
+            }
+            if let replacements = cleanup["corrections"]?.table {
+                for (key, value) in replacements {
+                    if let value = value.string { config.corrections[key] = value }
+                }
             }
         }
-
-        if let defaults = toml["defaults"] as? TOMLTable {
-            if let model = defaults["model"] as? String {
-                config.defaultModel = model
-            }
+        if let helper = toml["python"]?.table {
+            config.pythonExecutable = helper["executable"]?.string ?? config.pythonExecutable
         }
-
+        if let pyannote = toml["pyannote"]?.table {
+            config.pyannoteToken = pyannote["token"]?.string
+        }
+        guard config.correctionTimeout.isFinite, config.correctionTimeout > 0 else {
+            throw ConfigError.invalidTimeout
+        }
         return config
+    }
+
+    public enum ConfigError: LocalizedError {
+        case invalidEngine(String), invalidTimeout
+        public var errorDescription: String? {
+            switch self {
+            case .invalidEngine(let value): return "Unknown diarization engine '\(value)'; choose sortformer, wespeaker, or pyannote."
+            case .invalidTimeout: return "cleanup.timeout_s must be a positive finite number."
+            }
+        }
     }
 
     // MARK: - Create Default
@@ -128,7 +188,7 @@ public struct LivekeetConfig: Sendable {
         Settings:
           speaker.name     Your name in transcripts
           output.directory Where to save files (default: current dir)
-          output.filename  Pattern: {date}, {time}, {datetime}
+          output.filename  Pattern: {date}, {time}, {datetime}, {names}
           defaults.model   Speech recognition model
 
         Models (downloaded on first use):
@@ -137,13 +197,13 @@ public struct LivekeetConfig: Sendable {
         """)
     }
 
-    private static let defaultConfigContent = """
+    public static let defaultConfigContent = """
     # livekeet configuration
 
     [output]
     # Directory for transcripts (empty = current directory)
     directory = ""
-    # Filename pattern: {date}, {time}, {datetime}, or any static name
+    # Filename pattern: {date}, {time}, {datetime}, {names}, or any static name
     # Examples: "{datetime}.md", "{date}-meeting.md", "transcript.md"
     filename = "{datetime}.md"
 
@@ -156,5 +216,24 @@ public struct LivekeetConfig: Sendable {
     #   mlx-community/parakeet-tdt-0.6b-v2 - English, highest accuracy (default)
     #   mlx-community/parakeet-tdt-0.6b-v3  - Multilingual, 25 languages
     model = "mlx-community/parakeet-tdt-0.6b-v2"
+    diarize = false
+    engine = "sortformer" # sortformer (native), wespeaker, or pyannote
+    # device = "MacBook Pro Microphone" # name, UID, or --devices index
+
+    [cleanup]
+    enabled = false
+    model = "claude-haiku-4-5-20251001"
+    timeout_s = 120.0
+    # system_prompt = "Additional cleanup instructions"
+    # prompt = "Custom batch correction prompt"
+
+    [cleanup.corrections]
+    # "chat gbt" = "ChatGPT" # applied even with --no-cleanup
+
+    [python]
+    executable = "python3" # or an absolute path to a virtualenv's python
+
+    [pyannote]
+    # token = "hf_..." # alternatively set HF_TOKEN in the environment
     """
 }

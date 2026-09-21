@@ -5,12 +5,12 @@ public func resolveOutputPath(arg: String?, config: LivekeetConfig) -> URL {
     let now = Date()
 
     if let arg = arg, !arg.isEmpty {
-        var url = URL(fileURLWithPath: arg)
+        var url = URL(fileURLWithPath: NSString(string: arg).expandingTildeInPath)
 
         // If it's a directory, use the config filename pattern inside it
         var isDir: ObjCBool = false
-        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-            let filename = expandPattern(config.filenamePattern, date: now)
+        if (FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue) || arg.hasSuffix("/") {
+            let filename = expandPattern(config.filenamePattern, date: now, names: config.otherNames)
             return url.appendingPathComponent(filename)
         }
 
@@ -22,7 +22,7 @@ public func resolveOutputPath(arg: String?, config: LivekeetConfig) -> URL {
     }
 
     // Use config pattern
-    let filename = expandPattern(config.filenamePattern, date: now)
+    let filename = expandPattern(config.filenamePattern, date: now, names: config.otherNames)
 
     if !config.outputDirectory.isEmpty {
         let dir = NSString(string: config.outputDirectory).expandingTildeInPath
@@ -66,15 +66,26 @@ public func ensureUniquePath(_ path: URL) -> (path: URL, wasSuffixed: Bool) {
 }
 
 /// Expand {date}, {time}, {datetime} placeholders in a filename pattern.
-func expandPattern(_ pattern: String, date: Date) -> String {
+func expandPattern(_ pattern: String, date: Date, names: [String] = []) -> String {
     let dateStr = dateOnlyFormatter.string(from: date)
     let timeStr = timeOnlyFormatter.string(from: date)
     let datetimeStr = datetimeFormatter.string(from: date)
 
-    return pattern
+    let safeNames = names.map {
+        $0.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "\\", with: "_")
+    }.joined(separator: "-")
+    let expanded = pattern
+        .replacingOccurrences(of: "{names}", with: safeNames)
         .replacingOccurrences(of: "{date}", with: dateStr)
         .replacingOccurrences(of: "{time}", with: timeStr)
         .replacingOccurrences(of: "{datetime}", with: datetimeStr)
+    guard pattern.contains("{names}") else { return expanded }
+    let path = expanded as NSString
+    let ext = path.pathExtension
+    let stem = (ext.isEmpty ? expanded : path.deletingPathExtension)
+        .replacingOccurrences(of: "-{2,}", with: "-", options: .regularExpression)
+        .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    return stem + (ext.isEmpty ? "" : "." + ext)
 }
 
 // MARK: - Date Formatters
