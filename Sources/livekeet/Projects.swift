@@ -26,7 +26,7 @@ struct Projects: AsyncParsableCommand {
         @Option(help: "Project folder; defaults to <output directory>/<project name>.") var folder: String?
         func run() async throws {
             let config = try LivekeetConfig.load()
-            let base = URL(fileURLWithPath: NSString(string: config.outputDirectory.isEmpty ? "~/recordings" : config.outputDirectory).expandingTildeInPath)
+            let base = URL(fileURLWithPath: NSString(string: config.outputDirectory.isEmpty ? "~/meetings" : config.outputDirectory).expandingTildeInPath)
             let url = folder.map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) }
                 ?? RecordingProject.suggestedFolder(name: name, base: base)
             let project = try await RecordingLibrary.shared.createProject(name: name, folder: url)

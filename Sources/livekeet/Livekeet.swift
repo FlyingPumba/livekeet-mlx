@@ -33,7 +33,7 @@ struct Record: AsyncParsableCommand {
         """
     )
 
-    @Argument(help: "Output file or directory; defaults to ~/recordings and the config filename pattern, unless configured otherwise.")
+    @Argument(help: "Output file or directory; defaults to ~/meetings and the config filename pattern, unless configured otherwise.")
     var output: String?
     @Option(help: "Project name or ID; saves the recording in that project’s folder.")
     var project: String?

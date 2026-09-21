@@ -33,7 +33,7 @@ public struct LivekeetConfig: Sendable {
     public var pyannoteToken: String?
 
     public init(
-        outputDirectory: String = "~/recordings",
+        outputDirectory: String = "~/meetings",
         filenamePattern: String = "{datetime}.md",
         speakerName: String = "Me",
         defaultModel: String = ModelCatalog.parakeetV3.id,
@@ -208,8 +208,8 @@ public struct LivekeetConfig: Sendable {
     # livekeet configuration
 
     [output]
-    # Directory for Markdown recordings (empty also uses ~/recordings)
-    directory = "~/recordings"
+    # Directory for Markdown recordings (empty also uses ~/meetings)
+    directory = "~/meetings"
     # Filename pattern: {date}, {time}, {datetime}, {names}, or any static name
     # Examples: "{datetime}.md", "{date}-meeting.md", "transcript.md"
     filename = "{datetime}.md"

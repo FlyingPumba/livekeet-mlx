@@ -266,7 +266,7 @@ final class AppSettings {
     // MARK: - Computed Helpers
 
     var resolvedOutputDirectory: String {
-        let directory = outputDirectory.isEmpty ? "~/recordings" : outputDirectory
+        let directory = outputDirectory.isEmpty ? "~/meetings" : outputDirectory
         return NSString(string: directory).expandingTildeInPath
     }
 

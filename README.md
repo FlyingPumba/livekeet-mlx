@@ -80,7 +80,7 @@ Ctrl+C finishes queued transcription, speaker analysis, and remaining cleanup be
 
 ```toml
 [output]
-directory = "~/recordings"
+directory = "~/meetings"
 filename = "{datetime}-{names}.md"
 save_audio = false
 
@@ -119,12 +119,12 @@ The Mac app keeps its own persistent preferences. **Settings → General → Imp
 
 ## Recordings and local storage
 
-The app and CLI save Markdown recordings in **`~/recordings`** by default, creating the folder when needed. Set a different default in General settings or `[output].directory`. Empty directory settings also use `~/recordings`. A CLI output argument overrides the default; `livekeet ./` explicitly uses the current directory. In the app, **Choose folder…** applies only to the next recording. Existing files are left where they are.
+The app and CLI save Markdown recordings in **`~/meetings`** by default, creating the folder when needed. Set a different default in General settings or `[output].directory`. Empty directory settings also use `~/meetings`. A CLI output argument overrides the default; `livekeet ./` explicitly uses the current directory. In the app, **Choose folder…** applies only to the next recording. Existing files are left where they are.
 
 The main window lists one entry per recording, including recordings saved by the CLI or in other folders. Select an entry to read its transcript, see its location, or open it in Finder. The app discovers existing Livekeet transcripts in the default output folder; **Import transcripts…** adds older transcripts from elsewhere without copying them. File bookmarks follow moves and renames when macOS can resolve them. Disconnected drives and missing files stay in the list; **Locate transcript…** reconnects an entry to its file.
 
 - **Library index:** `~/Library/Application Support/Livekeet/recordings.json`. Stores identifiers, dates, model, participant names, and file paths/bookmarks; transcript files remain in their chosen folders. App and CLI share this index. Incomplete sessions remain marked Unfinished.
-- **Markdown files:** `~/recordings/<timestamp>.md` by default, or a chosen recording name/folder. Duplicate filenames get numeric suffixes.
+- **Markdown files:** `~/meetings/<timestamp>.md` by default, or a chosen recording name/folder. Duplicate filenames get numeric suffixes.
 - **Optional full audio:** enable **Save full audio** for a recording, CLI `--save-audio`, or `[output].save_audio = true`. Saves `microphone.wav` and/or `system.wav` in `<transcript-stem>.audio` alongside the Markdown, depending on the captured sources. It is off by default. Advanced **Dump audio** separately retains individual speech clips in that folder. Temporary processing audio is removed when the session finishes normally.
 - **App preferences:** macOS UserDefaults, domain `com.livekeet.app` (normally `~/Library/Preferences/com.livekeet.app.plist`).
 - **CLI preferences:** `~/.config/livekeet/config.toml`.
@@ -141,7 +141,7 @@ Right-click a saved recording and use **Move to project** to move its Markdown a
 The app and CLI share projects in the local library index. The existing recordings library upgrades automatically. Folder bookmarks follow project folders moved or renamed on the same disk when macOS can resolve them; a disconnected folder stays listed and cannot be used for new recordings until available again.
 
 ```sh
-livekeet projects create Research                         # ~/recordings/Research by default
+livekeet projects create Research                         # ~/meetings/Research by default
 livekeet projects create Meetings --folder ~/meetings     # group existing recordings
 livekeet projects list
 livekeet --project Research                               # timestamped Markdown in its folder

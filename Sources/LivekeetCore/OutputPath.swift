@@ -24,7 +24,7 @@ public func resolveOutputPath(arg: String?, config: LivekeetConfig) -> URL {
     // Use config pattern
     let filename = expandPattern(config.filenamePattern, date: now, names: config.otherNames)
 
-    let directory = config.outputDirectory.isEmpty ? "~/recordings" : config.outputDirectory
+    let directory = config.outputDirectory.isEmpty ? "~/meetings" : config.outputDirectory
     let dirURL = URL(fileURLWithPath: NSString(string: directory).expandingTildeInPath)
     try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
     return dirURL.appendingPathComponent(filename)
