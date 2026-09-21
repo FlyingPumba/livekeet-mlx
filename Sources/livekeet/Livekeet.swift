@@ -1,122 +1,188 @@
 import ArgumentParser
+import Darwin
 import Foundation
 import LivekeetCore
+import os
+
+extension DiarizationEngine: ExpressibleByArgument {}
+
+enum CLIVersion {
+    static let current = "0.3.0"
+}
 
 @main
 struct Livekeet: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "livekeet",
-        abstract: "Real-time audio transcription for macOS",
-        subcommands: [Record.self, Init.self, Devices.self],
+        abstract: "Live microphone and system-audio transcription to Markdown.",
+        discussion: "Run livekeet record --help for recording controls. Utility commands never load speech models.",
+        version: CLIVersion.current,
+        subcommands: [Record.self, Init.self, Config.self, Devices.self, Models.self, Relabel.self, Update.self],
         defaultSubcommand: Record.self
     )
 }
 
-// MARK: - Record Subcommand (default)
-
 struct Record: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "record",
-        abstract: "Start recording and transcribing audio (default)"
+        abstract: "Record and transcribe audio (the default command).",
+        discussion: """
+        Examples:
+          livekeet meeting.md --with "Alice,Bob" --diarize
+          livekeet --mic-only --device "USB" --cleanup
+          livekeet --system-only --engine pyannote
+        """
     )
 
-    @Argument(help: "Output file or directory (default: from config)")
+    @Argument(help: "Output file or directory; defaults to the config filename pattern.")
     var output: String?
-
-    @Option(name: [.short, .customLong("with")], help: "Other speaker name(s), comma-separated")
+    @Option(name: [.short, .customLong("with")], help: "Comma-separated remote speaker names; multiple names enable diarization.")
     var with: String?
-
-    @Flag(name: [.short, .customLong("mic-only")], help: "Only capture microphone (no system audio)")
+    @Flag(name: [.customShort("m"), .long], help: "Capture microphone only.")
     var micOnly = false
-
-    @Flag(help: "Use multilingual model (parakeet-tdt-0.6b-v3)")
+    @Flag(help: "Capture system audio only.")
+    var systemOnly = false
+    @Option(name: [.short, .long], help: "Microphone index, name, or UID from --devices.")
+    var device: String?
+    @Flag(help: "Use multilingual Parakeet v3; overrides --model.")
     var multilingual = false
-
-    @Option(help: "Model to use")
+    @Option(help: "Hugging Face speech model ID; see livekeet models.")
     var model: String?
-
-    @Flag(help: "Show periodic status updates")
+    @Flag(help: "Identify individual speakers on each channel.")
+    var diarize = false
+    @Flag(help: "Disable speaker identification, overriding config and automatic enabling.")
+    var noDiarize = false
+    @Option(help: "Speaker engine: sortformer (native), wespeaker, or pyannote (Python helper).")
+    var engine: DiarizationEngine?
+    @Flag(help: "Enable optional Claude transcript correction.")
+    var cleanup = false
+    @Flag(help: "Disable Claude correction, overriding --cleanup and config.")
+    var noCleanup = false
+    @Flag(help: "Show periodic recording status.")
     var status = false
-
-    @Flag(name: .customLong("dump-audio"), help: "Save each audio segment as a WAV file for debugging")
+    @Flag(help: "Save speech segments as WAVs alongside the transcript.")
     var dumpAudio = false
+    @Flag(help: "Skip interactive speaker renaming after recording.")
+    var noRelabel = false
+    @Flag(name: .customLong("init"), help: "Create the default config and exit (alias for init).")
+    var initialize = false
+    @Flag(name: .customLong("config"), help: "Show the config location and exit.")
+    var showConfig = false
+    @Flag(name: .customLong("devices"), help: "List microphones and exit.")
+    var showDevices = false
 
-    func run() async throws {
-        var config: LivekeetConfig
-        do {
-            config = try LivekeetConfig.load()
-        } catch {
-            Log.warning("Could not load config: \(error.localizedDescription). Using defaults.")
-            config = LivekeetConfig()
-        }
+    mutating func validate() throws {
+        guard !initialize && !showConfig && !showDevices else { return }
+        if micOnly && systemOnly { throw ValidationError("--mic-only and --system-only cannot be combined.") }
+        if device != nil && systemOnly { throw ValidationError("--device selects a microphone and cannot be used with --system-only.") }
+    }
 
+    func resolvedConfig(_ base: LivekeetConfig) -> LivekeetConfig {
+        var config = base
         config.micOnly = micOnly
+        config.systemOnly = systemOnly
         config.multilingual = multilingual
         config.showStatus = status
         config.dumpAudio = dumpAudio
-
-        if let model = model {
-            config.defaultModel = model
+        if let model { config.defaultModel = model }
+        if let device { config.inputDevice = device }
+        if let with {
+            config.otherNames = with.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         }
+        if micOnly { config.otherNames = [] }
+        if let engine { config.diarizationEngine = engine }
+        if diarize || engine != nil || config.otherNames.count > 1 { config.disableDiarization = false }
+        if noDiarize { config.disableDiarization = true }
+        if cleanup { config.enableCorrection = true }
+        if noCleanup { config.enableCorrection = false }
+        if systemOnly { config.inputDevice = nil }
+        return config
+    }
 
-        if let with = with {
-            config.otherNames = with.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+    func run() async throws {
+        if initialize { try LivekeetConfig.createDefault(); return }
+        if showConfig { Config.show(); return }
+        if showDevices { Devices.show(); return }
+        let config = resolvedConfig(try LivekeetConfig.load())
+        if multilingual && model != nil { Self.warn("--multilingual overrides --model") }
+        if micOnly && with != nil { Self.warn("--with is ignored in --mic-only mode") }
+        if let selection = config.inputDevice {
+            let chosen = try AudioInputDevice.resolve(selection, in: AudioCapture.listDevices())
+            print("Microphone: \(chosen.name)")
         }
-
-        if multilingual && model != nil {
-            Log.warning("--multilingual overrides --model")
-        }
-        if micOnly && with != nil {
-            Log.warning("--with is ignored in --mic-only mode (system audio disabled)")
-        }
-
+        print("Speech model: \(config.modelName)")
+        print("Speaker identification: \(config.disableDiarization ? "off" : config.diarizationEngine.rawValue)")
+        if config.enableCorrection { print("AI cleanup enabled: transcript text will be sent to Claude.") }
         let transcriber = try await Transcriber(config: config, outputArg: output)
-
-        // Install signal handlers for graceful shutdown
-        let signalSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
-        signal(SIGINT, SIG_IGN)
-        signalSource.setEventHandler {
-            print("\nStopping...")
+        let interrupts = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global())
+        let termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
+        let previousINT = signal(SIGINT, SIG_IGN)
+        let previousTERM = signal(SIGTERM, SIG_IGN)
+        let terminated = OSAllocatedUnfairLock(initialState: false)
+        interrupts.setEventHandler {
+            print("\nStopping; finishing queued transcription...")
             Task { await transcriber.stop() }
         }
-        signalSource.resume()
-
-        let termSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-        signal(SIGTERM, SIG_IGN)
-        termSource.setEventHandler {
+        termination.setEventHandler {
+            terminated.withLock { $0 = true }
             Task { await transcriber.stop() }
         }
-        termSource.resume()
-
+        interrupts.resume()
+        termination.resume()
+        defer {
+            interrupts.cancel()
+            termination.cancel()
+            signal(SIGINT, previousINT)
+            signal(SIGTERM, previousTERM)
+        }
         try await transcriber.run()
+        interrupts.cancel()
+        termination.cancel()
+        signal(SIGINT, previousINT)
+        signal(SIGTERM, previousTERM)
+        let path = await transcriber.savedOutputPath
+        print("Saved: \(path.path)")
+        if !noRelabel && !micOnly && !terminated.withLock({ $0 }) && isatty(STDIN_FILENO) != 0 {
+            try Relabel.interactive(path)
+        }
+    }
+
+    static func warn(_ message: String) {
+        FileHandle.standardError.write(Data("Warning: \(message)\n".utf8))
     }
 }
-
-// MARK: - Init Subcommand
 
 struct Init: ParsableCommand {
-    static let configuration = CommandConfiguration(
-        abstract: "Create default configuration file"
-    )
-
-    func run() throws {
-        try LivekeetConfig.createDefault()
-    }
+    static let configuration = CommandConfiguration(abstract: "Create ~/.config/livekeet/config.toml without overwriting an existing file.")
+    func run() throws { try LivekeetConfig.createDefault() }
 }
 
-// MARK: - Devices Subcommand
+struct Config: ParsableCommand {
+    static let configuration = CommandConfiguration(abstract: "Show the configuration file location.")
+    static func show() {
+        print("Config file: \(LivekeetConfig.configFile.path)")
+        print(FileManager.default.fileExists(atPath: LivekeetConfig.configFile.path) ? "(exists)" : "(not created yet; run livekeet init)")
+    }
+    func run() { Self.show() }
+}
 
 struct Devices: ParsableCommand {
-    static let configuration = CommandConfiguration(
-        abstract: "List available audio devices"
-    )
-
-    func run() {
+    static let configuration = CommandConfiguration(abstract: "List microphones and their selection indices and UIDs.")
+    static func show() {
         let devices = AudioCapture.listDevices()
-        print("Available microphones:\n")
-        for device in devices {
-            let suffix = device.isDefault ? " (default)" : ""
-            print("  \(device.name)\(suffix)")
+        if devices.isEmpty { print("No microphones found."); return }
+        for (index, device) in devices.enumerated() {
+            print("\(index): \(device.name)\(device.isDefault ? " (default)" : "")\n   UID: \(device.id)")
+        }
+        print("Select with --device <index, name, or UID>. Indices may change when devices reconnect.")
+    }
+    func run() { Self.show() }
+}
+
+struct Models: ParsableCommand {
+    static let configuration = CommandConfiguration(abstract: "List the curated speech models.")
+    func run() {
+        for model in ModelCatalog.availableModels {
+            print("\(model.id)\n  \(model.displayName) — \(model.subtitle)")
         }
     }
 }

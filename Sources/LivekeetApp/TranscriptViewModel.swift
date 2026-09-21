@@ -17,6 +17,7 @@ final class TranscriptViewModel {
     var segments: [DisplaySegment] = []
     var isRecording = false
     var isLoading = false
+    var isStopping = false
     var errorMessage: String?
     var savedFilePath: String?
 
@@ -36,6 +37,7 @@ final class TranscriptViewModel {
         guard !isRecording else { return }
         isRecording = true
         isLoading = true
+        isStopping = false
         errorMessage = nil
         savedFilePath = nil
         segments = []
@@ -59,28 +61,25 @@ final class TranscriptViewModel {
                 }
 
                 self.isLoading = false
-
+                if self.isStopping { await t.stop() }
                 try await t.run()
+                self.isRecording = false
+                self.isStopping = false
+                self.stopDebugPolling()
             } catch {
                 self.errorMessage = error.localizedDescription
                 self.isLoading = false
                 self.isRecording = false
+                self.isStopping = false
             }
         }
     }
 
     func stopRecording() {
-        guard isRecording else { return }
-        isRecording = false
-        isLoading = false
-        stopDebugPolling()
-        Task {
-            await transcriber?.stop()
-            eventTask?.cancel()
-            eventTask = nil
-            runTask?.cancel()
-            runTask = nil
-        }
+        guard isRecording, !isStopping else { return }
+        isStopping = true
+        // Keep the event stream alive until the pipeline emits its final saved path.
+        Task { await transcriber?.stop() }
     }
 
     func startDebugPolling() {
@@ -137,6 +136,8 @@ final class TranscriptViewModel {
             }
         case .completed(let path):
             savedFilePath = path
+        case .warning(let message):
+            errorMessage = message
         }
     }
 

@@ -1,9 +1,12 @@
+SWIFT ?= ./scripts/swift.sh
+PREFIX ?= $(HOME)/.local
+
 SPM_DEBUG_DIR := .build/debug
 SPM_RELEASE_DIR := .build/release
 
 APP_NAME := Livekeet
 BUNDLE_ID := com.livekeet.app
-VERSION ?= 0.1.0
+VERSION ?= $(shell /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Sources/LivekeetApp/Info.plist)
 BUILD_NUMBER ?= 1
 SIGNING_IDENTITY ?= Apple Development
 RELEASE_SIGNING_IDENTITY ?= Developer ID Application
@@ -14,21 +17,25 @@ SPARKLE_SIGN_UPDATE := .build/artifacts/sparkle/Sparkle/bin/sign_update
 APPCAST_URL_BASE ?= https://github.com/LucaDeLeo/livekeet-mlx/releases/download
 MIN_SYSTEM_VERSION ?= 14.0
 
-.PHONY: build build-release run clean build-app run-app build-release-app dmg notarize appcast-entry test
+.PHONY: build build-release run clean build-app run-app build-release-app dmg notarize appcast-entry test install
 
 build:
-	swift build --product livekeet
+	$(SWIFT) build --product livekeet
 
 build-release:
-	swift build -c release --product livekeet
+	$(SWIFT) build -c release --product livekeet
 
 run: build
 	$(SPM_DEBUG_DIR)/livekeet $(ARGS)
 
+install: build-release
+	@bash scripts/build-metallib.sh .build/metallib
+	@bash scripts/install-cli.sh "$(PREFIX)" "$(SPM_RELEASE_DIR)"
+
 # --- Debug app bundle ---
 
 build-app:
-	swift build --product LivekeetApp
+	$(SWIFT) build --product LivekeetApp
 	@$(MAKE) _bundle DIR=$(SPM_DEBUG_DIR) SIGN_ID="$(SIGNING_IDENTITY)"
 	@echo "Built $(APP_NAME).app (debug)"
 
@@ -38,7 +45,7 @@ run-app: build-app
 # --- Release app bundle ---
 
 build-release-app:
-	swift build -c release --product LivekeetApp
+	$(SWIFT) build -c release --product LivekeetApp
 	@$(MAKE) _bundle DIR=$(SPM_RELEASE_DIR) SIGN_ID="$(RELEASE_SIGNING_IDENTITY)"
 	@echo "Built $(APP_NAME).app (release)"
 
@@ -65,6 +72,10 @@ _bundle:
 	@bash scripts/build-metallib.sh .build/metallib
 	@mkdir -p $(DIR)/$(APP_NAME).app/Contents/Resources
 	@cp -R .build/metallib/mlx-swift_Cmlx.bundle $(DIR)/$(APP_NAME).app/Contents/Resources/
+	@# Embed SwiftPM resources (including the optional Python helpers).
+	@for resource in $(DIR)/*.bundle; do \
+		[ ! -d "$$resource" ] || ditto "$$resource" "$(DIR)/$(APP_NAME).app/Contents/Resources/$$(basename "$$resource")"; \
+	done
 	@# Embed Sparkle.framework and add rpath so dyld finds it
 	@mkdir -p $(DIR)/$(APP_NAME).app/Contents/Frameworks
 	@cp -R $(SPARKLE_FRAMEWORK) $(DIR)/$(APP_NAME).app/Contents/Frameworks/
@@ -98,7 +109,7 @@ notarize:
 	@echo "Notarization complete."
 
 test:
-	swift test
+	$(SWIFT) test
 
 # --- Appcast entry generation ---
 #

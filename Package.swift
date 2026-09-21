@@ -23,7 +23,8 @@ let package = Package(
                 .product(name: "MLXAudioVAD", package: "mlx-audio-swift"),
                 .product(name: "MLXAudioCore", package: "mlx-audio-swift"),
                 .product(name: "TOMLKit", package: "TOMLKit"),
-            ]
+            ],
+            resources: [.copy("Resources/Python")]
         ),
         .executableTarget(
             name: "livekeet",
@@ -39,6 +40,7 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
             ]
         ),
+        .testTarget(name: "LivekeetCLITests", dependencies: ["livekeet", "LivekeetCore"]),
         .testTarget(
             name: "LivekeetCoreTests",
             dependencies: ["LivekeetCore"],

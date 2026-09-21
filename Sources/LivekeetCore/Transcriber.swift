@@ -26,6 +26,7 @@ public enum TranscriptEvent: Sendable {
     case segment(TranscriptSegment)
     case rewrite([TranscriptSegment])
     case completed(outputPath: String)
+    case warning(String)
 }
 
 // MARK: - Debug Stats
@@ -147,6 +148,8 @@ public actor Transcriber {
     private let pcmTempDir: URL
     private var transcriptSegments: [TranscriptSegment] = []
     private var recordingStartTime: Date?
+    private var pythonDiarizer: PythonDiarizer?
+    private var helperErrorReported = false
     private var sortformerModel: SortformerModel?
     private var batchPassCount = 0
     private var speakerRenames: [SpeakerKey: String] = [:]
@@ -193,6 +196,8 @@ public actor Transcriber {
     private var lastInferenceRatio: Double?
 
     /// Stream of transcript events. Safe to access from any isolation domain.
+    public var savedOutputPath: URL { outputPath }
+
     public nonisolated var events: AsyncStream<TranscriptEvent> { eventStream }
 
     public init(config: LivekeetConfig, outputArg: String? = nil) async throws {
@@ -200,12 +205,21 @@ public actor Transcriber {
         self.eventStream = stream
         self.eventContinuation = continuation
 
+        guard config.correctionTimeout.isFinite, config.correctionTimeout > 0 else {
+            throw LivekeetConfig.ConfigError.invalidTimeout
+        }
         self.config = config
-        self.capture = AudioCapture(micOnly: config.micOnly, systemOnly: config.systemOnly)
+        self.capture = AudioCapture(micOnly: config.micOnly, systemOnly: config.systemOnly, inputDevice: config.inputDevice)
 
         let modelName = config.modelName
         let shortName = modelName.split(separator: "/").last.map(String.init) ?? modelName
-        let diarEnabled = !config.disableDiarization
+        let diarEnabled = !config.disableDiarization && config.diarizationEngine == .sortformer
+        if !config.disableDiarization && config.diarizationEngine != .sortformer {
+            let helper = try PythonDiarizer(config: config)
+            do { try await helper.prepare() }
+            catch { await helper.stop(); throw error }
+            self.pythonDiarizer = helper
+        }
         let loadStart = Date()
 
         // STT: hot-start from prewarm cache if available. If the cache is empty but a prewarm
@@ -244,7 +258,7 @@ public actor Transcriber {
 
         let wall = Date().timeIntervalSince(loadStart)
         let diarStatus: String = {
-            if !diarEnabled { return "disabled" }
+            if !diarEnabled { return config.disableDiarization ? "disabled" : config.diarizationEngine.rawValue }
             if sortformerFromCache != nil { return "cached" }
             return "loading in background"
         }()
@@ -321,7 +335,16 @@ public actor Transcriber {
 
     /// Main loop — blocks until stopped via Ctrl+C or `stop()`.
     public func run() async throws {
-        let audioStream = try await capture.start()
+        let audioStream: AsyncStream<AudioChunk>
+        do { audioStream = try await capture.start() }
+        catch {
+            await capture.stop()
+            await pythonDiarizer?.stop()
+            micPCM.cleanup()
+            sysPCM.cleanup()
+            try? FileManager.default.removeItem(at: pcmTempDir)
+            throw error
+        }
 
         if config.systemOnly {
             let others = config.otherNames.isEmpty ? config.otherName : config.otherNames.joined(separator: ", ")
@@ -377,6 +400,12 @@ public actor Transcriber {
             await runBatchDiarization(final: true)
         }
 
+        // Audio and inference queues have now drained; correct every remaining batch.
+        if config.enableCorrection, corrector != nil {
+            while lastCorrectedCount < transcriptSegments.count { await runCorrectionPass() }
+            await corrector?.cleanup()
+        }
+        await pythonDiarizer?.stop()
         await writer.writeFooter()
         await capture.stop()
 
@@ -593,10 +622,15 @@ public actor Transcriber {
     private func writeTranscriptionResult(
         _ result: STTOutput, segment: DetectedSegment, channel: String
     ) async {
-        let text = TranscriptArtifactFilter.clean(result.text)
+        let text = DeterministicCorrections.apply(TranscriptArtifactFilter.clean(result.text), replacements: config.corrections)
         guard !text.isEmpty else { return }
 
-        let speaker = resolveSpeaker(channel: channel, speakerIndex: segment.speakerIndex)
+        var speakerIndex = segment.speakerIndex
+        if config.diarizationEngine == .wespeaker, let helper = pythonDiarizer {
+            do { speakerIndex = try await helper.identify(samples: segment.audio, channel: channel) }
+            catch { reportHelperError(error) }
+        }
+        let speaker = resolveSpeaker(channel: channel, speakerIndex: speakerIndex)
 
         let baseOffset: Float
         if let start = recordingStartTime {
@@ -609,7 +643,7 @@ public actor Transcriber {
             for sentence in sentences {
                 guard let sentenceText = sentence["text"] as? String,
                       let sentenceStart = sentence["start"] as? Double else { continue }
-                let trimmed = TranscriptArtifactFilter.clean(sentenceText)
+                let trimmed = DeterministicCorrections.apply(TranscriptArtifactFilter.clean(sentenceText), replacements: config.corrections)
                 guard !trimmed.isEmpty else { continue }
                 let sentenceTime = segment.startTime.addingTimeInterval(sentenceStart)
                 let seg = TranscriptSegment(
@@ -618,7 +652,7 @@ public actor Transcriber {
                     channel: channel,
                     timestamp: MarkdownWriter.formatTime(sentenceTime),
                     startTime: sentenceTime,
-                    speakerIndex: segment.speakerIndex,
+                    speakerIndex: speakerIndex,
                     speaker: speaker
                 )
                 transcriptSegments.append(seg)
@@ -632,7 +666,7 @@ public actor Transcriber {
                 channel: channel,
                 timestamp: MarkdownWriter.formatTime(segment.startTime),
                 startTime: segment.startTime,
-                speakerIndex: segment.speakerIndex,
+                speakerIndex: speakerIndex,
                 speaker: speaker
             )
             transcriptSegments.append(seg)
@@ -672,7 +706,23 @@ public actor Transcriber {
     }
 
     private func runBatchDiarization(final isFinal: Bool) async {
-        guard let sortformerModel, !transcriptSegments.isEmpty else { return }
+        guard !transcriptSegments.isEmpty else { return }
+        if config.diarizationEngine == .wespeaker { return }
+        if config.diarizationEngine == .pyannote {
+            guard let helper = pythonDiarizer else { return }
+            var channels: [String: (path: URL, count: Int)] = [:]
+            if !config.systemOnly { channels["mic"] = (micPCM.url, micPCM.sampleCount) }
+            if !config.micOnly { channels["system"] = (sysPCM.url, sysPCM.sampleCount) }
+            do {
+                let turns = try await helper.diarize(channels: channels)
+                func segments(_ channel: String) -> [DiarizationSegment] {
+                    (turns[channel] ?? []).map { DiarizationSegment(start: $0.start, end: $0.end, speaker: $0.speaker) }
+                }
+                await rebuildTranscript(micTurns: segments("mic"), sysTurns: segments("system"))
+            } catch { reportHelperError(error) }
+            return
+        }
+        guard let sortformerModel else { return }
 
         batchPassCount += 1
 
@@ -788,7 +838,10 @@ public actor Transcriber {
         do {
             let settings = TranscriptCorrector.Settings(
                 basePrompt: config.correctionPrompt,
-                model: config.correctionModel
+                model: config.correctionModel,
+                systemPrompt: config.correctionSystemPrompt,
+                timeout: config.correctionTimeout,
+                pythonExecutable: config.pythonExecutable
             )
             corrector = try TranscriptCorrector(settings: settings)
         } catch {
@@ -800,9 +853,6 @@ public actor Transcriber {
             await self.runCorrectionPass()
         }
 
-        // Final pass on remaining segments
-        await runCorrectionPass()
-        await corrector?.cleanup()
     }
 
     private func periodicWorker(initialDelay: Int, interval: Int, work: () async -> Void) async {
@@ -846,6 +896,8 @@ public actor Transcriber {
         if !corrections.isEmpty {
             var correctedCount = 0
             for correction in corrections {
+                guard correction.index >= 0, correction.index < targetSegments.count,
+                      !correction.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                 let actualIndex = lastCorrectedCount + correction.index
                 guard actualIndex < transcriptSegments.count else { continue }
                 let seg = transcriptSegments[actualIndex]
@@ -870,6 +922,15 @@ public actor Transcriber {
         }
 
         lastCorrectedCount = endIndex
+    }
+
+    private func reportHelperError(_ error: Error) {
+        guard !helperErrorReported else { return }
+        helperErrorReported = true
+        let message = "Speaker identification failed: \(error.localizedDescription). Transcription continues with channel labels."
+        Log.error(message)
+        eventContinuation.yield(.warning(message))
+        FileHandle.standardError.write(Data((message + "\n").utf8))
     }
 
     // MARK: - Speaker Renaming

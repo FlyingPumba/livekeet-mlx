@@ -56,10 +56,10 @@ public struct AudioInputDevice: Identifiable, Sendable, Equatable {
     private static func stringProperty(_ selector: AudioObjectPropertySelector, on id: AudioDeviceID) -> String? {
         var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
                                                 mElement: kAudioObjectPropertyElementMain)
-        var result: CFString = "" as CFString
-        var size = UInt32(MemoryLayout<CFString>.size)
+        var result: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
         guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &result) == noErr else { return nil }
-        return result as String
+        return result?.takeUnretainedValue() as String?
     }
 
     public enum SelectionError: LocalizedError {

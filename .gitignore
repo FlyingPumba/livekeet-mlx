@@ -7,3 +7,6 @@
 *.audio/
 .sparkle/
 dist/
+
+__pycache__/
+*.pyc

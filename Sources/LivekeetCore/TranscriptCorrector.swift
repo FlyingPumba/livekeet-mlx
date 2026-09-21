@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// Calls a Python sidecar script (using claude-runner) to fix STT errors.
 ///
@@ -9,13 +10,22 @@ public actor TranscriptCorrector {
     public struct Settings: Sendable {
         public let basePrompt: String
         public let model: String
+        public let systemPrompt: String
+        public let timeout: Double
+        public let pythonExecutable: String
 
         public init(
             basePrompt: String = CorrectionPromptBuilder.defaultBasePrompt,
-            model: String = CorrectionPromptBuilder.defaultModel
+            model: String = CorrectionPromptBuilder.defaultModel,
+            systemPrompt: String = CorrectionPromptBuilder.defaultSystemPrompt,
+            timeout: Double = 120,
+            pythonExecutable: String = "python3"
         ) {
             self.basePrompt = basePrompt
             self.model = model
+            self.systemPrompt = systemPrompt
+            self.timeout = timeout
+            self.pythonExecutable = pythonExecutable
         }
     }
 
@@ -46,11 +56,11 @@ public actor TranscriptCorrector {
     private let settings: Settings
     private let promptBuilder: CorrectionPromptBuilder
     private var available = true
-    private let timeoutSeconds: Double = 120
+
 
     public init(settings: Settings = Settings()) throws {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("livekeet_correct_\(ProcessInfo.processInfo.processIdentifier).py")
+            .appendingPathComponent("livekeet_correct_\(UUID().uuidString).py")
         try Self.embeddedScript.write(to: url, atomically: true, encoding: .utf8)
         self.scriptURL = url
 
@@ -76,7 +86,7 @@ public actor TranscriptCorrector {
         )
         let input = Input(
             prompt: prompt,
-            systemPrompt: CorrectionPromptBuilder.defaultSystemPrompt,
+            systemPrompt: settings.systemPrompt,
             model: settings.model
         )
         guard let inputJSON = try? JSONEncoder().encode(input) else {
@@ -124,13 +134,14 @@ public actor TranscriptCorrector {
 
     private func runScript(inputJSON: Data) async throws -> Data {
         let scriptPath = scriptURL.path
-        let timeout = timeoutSeconds
+        let timeout = settings.timeout
+        let python = NSString(string: settings.pythonExecutable).expandingTildeInPath
         let env = cleanEnv
 
         return try await Task.detached {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["python3", scriptPath]
+            process.arguments = [python, scriptPath]
             process.environment = env
 
             let stdinPipe = Pipe()
@@ -148,7 +159,7 @@ public actor TranscriptCorrector {
 
             // Kill process if it exceeds timeout
             let workItem = DispatchWorkItem { [process] in
-                if process.isRunning { process.terminate() }
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: workItem)
 
@@ -165,7 +176,7 @@ public actor TranscriptCorrector {
                 let stderr = String(data: stderrData, encoding: .utf8) ?? ""
                 if stderr.contains("ModuleNotFoundError") || stderr.contains("No module named") {
                     throw CorrectorError.notAvailable(
-                        "claude-runner not installed. Run: pip install -e ~/dev/claude-runner"
+                        "claude-runner not installed in the selected Python. Run scripts/setup-python.sh cleanup and configure [python] executable."
                     )
                 }
                 if !outputData.isEmpty {

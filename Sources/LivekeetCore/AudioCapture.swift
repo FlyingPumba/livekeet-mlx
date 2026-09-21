@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import Accelerate
+import AudioToolbox
 import CoreMedia
 import Foundation
 import ScreenCaptureKit
@@ -192,10 +193,12 @@ public final class AudioCapture: @unchecked Sendable {
 
     public let micOnly: Bool
     public let systemOnly: Bool
+    private let inputDevice: String?
     public var micGain: Float = 1.0
     public private(set) var micPermissionDenied = false
 
-    public init(micOnly: Bool = false, systemOnly: Bool = false) {
+    public init(micOnly: Bool = false, systemOnly: Bool = false, inputDevice: String? = nil) {
+        self.inputDevice = inputDevice
         self.micOnly = micOnly
         self.systemOnly = systemOnly
         self.outputFormat = AVAudioFormat(
@@ -208,25 +211,8 @@ public final class AudioCapture: @unchecked Sendable {
 
     // MARK: - Device Listing
 
-    public struct AudioDevice: Sendable {
-        public let name: String
-        public let isDefault: Bool
-    }
-
-    public static func listDevices() -> [AudioDevice] {
-        let deviceTypes: [AVCaptureDevice.DeviceType] = [.microphone, .external]
-        let devices = AVCaptureDevice.DiscoverySession(
-            deviceTypes: deviceTypes,
-            mediaType: .audio,
-            position: .unspecified
-        ).devices
-        let defaultID = AVCaptureDevice.default(for: .audio)?.uniqueID
-        return devices.map { device in
-            AudioDevice(
-                name: device.localizedName,
-                isDefault: device.uniqueID == defaultID
-            )
-        }
+    public static func listDevices() -> [AudioInputDevice] {
+        AudioInputDevice.available()
     }
 
     // MARK: - Permissions
@@ -262,7 +248,8 @@ public final class AudioCapture: @unchecked Sendable {
             let hasPermission = await requestMicrophonePermission()
             if !hasPermission {
                 micPermissionDenied = true
-                Log.warning("Microphone permission not granted")
+                if micOnly || inputDevice != nil { throw CaptureError.microphonePermissionDenied }
+                Log.warning("Microphone permission not granted; recording system audio only")
             }
         }
 
@@ -282,7 +269,7 @@ public final class AudioCapture: @unchecked Sendable {
             try await stream?.startCapture()
         }
 
-        if !systemOnly {
+        if !systemOnly && !micPermissionDenied {
             try startMicrophoneCapture()
         }
         isRunning.withLock { $0 = true }
@@ -422,6 +409,18 @@ public final class AudioCapture: @unchecked Sendable {
         guard let engine = micEngine else { return }
 
         let inputNode = engine.inputNode
+        if let selection = inputDevice {
+            let device = try AudioInputDevice.resolve(selection, in: Self.listDevices())
+            guard let unit = inputNode.audioUnit else {
+                throw AudioInputDevice.SelectionError.unavailable(kAudio_ParamError)
+            }
+            var id = device.objectID
+            let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice,
+                                              kAudioUnitScope_Global, 0, &id,
+                                              UInt32(MemoryLayout<AudioDeviceID>.size))
+            guard status == noErr else { throw AudioInputDevice.SelectionError.unavailable(status) }
+            Log.info("Microphone: \(device.name)")
+        }
         let inputFormat = inputNode.outputFormat(forBus: 0)
 
         Log.info("Mic: \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount)ch")
