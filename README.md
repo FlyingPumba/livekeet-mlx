@@ -137,9 +137,18 @@ Apple SpeechAnalyzer is shown as unavailable with an explanation: it requires ma
 
 Cohere and Canary need **Transcription language** in Settings, or `--language es` / `[defaults].language = "es"` in the CLI. Language hints are only passed to those models; Granite's separate translation mode is not enabled. Speaker identification is independent of the speech model.
 
-For Moonshine and the original Voxtral, click **Set up local speech support** in Models, or run `scripts/setup-python.sh speech` and choose the printed Python path in Advanced settings. Model weights download on first use. Unsupported custom architectures produce a startup error rather than falling back to another model.
+For Moonshine and the original Voxtral, click **Set up local speech support** in Models, or run `scripts/setup-python.sh speech` and choose the printed path under Advanced → Speech Python. The speech setup button preserves the existing speaker/cleanup Python setting. CLI users can set `[python].speech_executable` separately or leave it unset to use `[python].executable`. Model weights download on first use. Unsupported custom architectures produce a startup error rather than falling back to another model.
 
 WER is lower-is-better word error rate. Catalog figures describe the publishers' original models and named datasets, not benchmarks of these quantized builds or this Mac. Different languages and evaluation sets are not directly comparable. Livekeet transcribes completed speech segments, so a model's published streaming delay is not the app's latency.
+
+To check an actual checkpoint against a local Spanish audio file (downloads weights when needed):
+
+```sh
+scripts/smoke-speech-model.sh mlx-community/Qwen3-ASR-0.6B-4bit /absolute/path/spanish.wav
+# For Python speech models, also set LIVEKEET_SMOKE_PYTHON to the helper executable.
+```
+
+This smoke test checks loading and nonempty transcription; it is not a WER benchmark.
 
 ## Optional Python engines and cleanup
 

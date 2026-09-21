@@ -33,7 +33,7 @@ public struct SpeechModelDescriptor: Sendable, Identifiable, Hashable {
 }
 
 public enum ModelCatalog {
-    public static let benchmarkExplanation = "WER is word error rate; lower is better. Scores below are published results for the original models, not measurements of these local builds. Different languages, datasets and test settings are not directly comparable."
+    public static let benchmarkExplanation = "WER is word error rate; lower is better. Scores shown are published results for the original models, not measurements of these local builds. Different languages, datasets and test settings are not directly comparable."
     private static let cohereLanguages = ["en", "es", "fr", "de", "it", "pt", "el", "nl", "pl", "zh", "ja", "ko", "vi", "ar"]
     private static let europeanLanguages = ["bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk"]
 
@@ -118,7 +118,7 @@ public enum ModelCatalog {
         source: URL(string: "https://huggingface.co/moonshine-ai/moonshine-streaming-small-es")!)
 
     public static let whisper = SpeechModelDescriptor(
-        id: "mlx-community/whisper-large-v3-mlx", displayName: "Whisper large-v3",
+        id: "mlx-community/whisper-large-v3-fp16", displayName: "Whisper large-v3",
         subtitle: "Broad multilingual coverage", sizeDescription: "1.55B · FP16 weights", backend: .whisper,
         release: "November 2023",
         strengths: "Established multilingual recognition with automatic language detection. A useful baseline for Spanish and less widely supported languages.",
@@ -132,7 +132,7 @@ public enum ModelCatalog {
         release: "September 2024",
         strengths: "A reduced decoder makes Whisper faster and lighter, with broad language coverage including Spanish.",
         tradeoffs: "Some accuracy loss versus large-v3 varies by language. Intended for transcription, not speech translation.",
-        benchmark: "WER: no single comparable score quoted in the model card. Do not substitute large-v3's score for Turbo.",
+        benchmark: "WER: no single comparable score published in the model card. Accuracy varies by language.",
         source: URL(string: "https://huggingface.co/openai/whisper-large-v3-turbo")!)
 
     public static let voxtralLegacy = SpeechModelDescriptor(
@@ -151,6 +151,7 @@ public enum ModelCatalog {
 
     public static func canonicalID(for id: String) -> String {
         switch id {
+        case "mlx-community/whisper-large-v3-mlx": whisper.id
         case "mlx-community/Qwen3-ASR-Flash-MLX-4bit": qwen3ASR.id
         case "mlx-community/Voxtral-Mini-3B-2507-4bit": voxtralLegacy.id
         default: id

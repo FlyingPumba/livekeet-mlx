@@ -28,6 +28,7 @@ public struct LivekeetConfig: Sendable {
     public var inputDevice: String?
     public var diarizationEngine: DiarizationEngine
     public var pythonExecutable: String
+    public var speechPythonExecutable: String?
     public var pyannoteToken: String?
 
     public init(
@@ -51,6 +52,7 @@ public struct LivekeetConfig: Sendable {
         inputDevice: String? = nil,
         diarizationEngine: DiarizationEngine = .sortformer,
         pythonExecutable: String = "python3",
+        speechPythonExecutable: String? = nil,
         pyannoteToken: String? = nil
     ) {
         self.outputDirectory = outputDirectory
@@ -72,6 +74,7 @@ public struct LivekeetConfig: Sendable {
         self.corrections = corrections
         self.inputDevice = inputDevice
         self.diarizationEngine = diarizationEngine
+        self.speechPythonExecutable = speechPythonExecutable
         self.pythonExecutable = pythonExecutable
         self.pyannoteToken = pyannoteToken
     }
@@ -147,6 +150,7 @@ public struct LivekeetConfig: Sendable {
         }
         if let helper = toml["python"]?.table {
             config.pythonExecutable = helper["executable"]?.string ?? config.pythonExecutable
+            config.speechPythonExecutable = helper["speech_executable"]?.string
         }
         if let pyannote = toml["pyannote"]?.table {
             config.pyannoteToken = pyannote["token"]?.string
@@ -233,6 +237,7 @@ public struct LivekeetConfig: Sendable {
 
     [python]
     executable = "python3" # or an absolute path to a virtualenv's python
+    # speech_executable = "/path/to/python" # optional separate speech environment
 
     [pyannote]
     # token = "hf_..." # alternatively set HF_TOKEN in the environment

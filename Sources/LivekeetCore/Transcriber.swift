@@ -235,7 +235,7 @@ public actor Transcriber {
         let sttModel: (any STTGenerationModel)?
         let sttElapsed: TimeInterval
         if backend.needsPython {
-            let helper = try PythonSpeechRecognizer(modelID: modelName, python: config.pythonExecutable)
+            let helper = try PythonSpeechRecognizer(modelID: modelName, python: config.speechPythonExecutable ?? config.pythonExecutable)
             do { try await helper.prepare() }
             catch { await helper.stop(); throw error }
             self.pythonSpeech = helper

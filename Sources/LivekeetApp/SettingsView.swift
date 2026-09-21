@@ -176,7 +176,7 @@ struct SettingsView: View {
                             speechSetupMessage = nil
                             Task {
                                 do {
-                                    self.settings.pythonExecutable = try await SpeechHelperSetup.install()
+                                    self.settings.speechPythonExecutable = try await SpeechHelperSetup.install()
                                     speechSetupMessage = "Local speech support is ready. Model weights download on first recording."
                                 } catch { speechSetupMessage = error.localizedDescription }
                                 installingSpeechSupport = false
@@ -230,7 +230,9 @@ struct SettingsView: View {
             Section("Python Helper") {
                 TextField("Python executable", text: settings.pythonExecutable)
                     .textFieldStyle(.roundedBorder)
-                Text("Choose the Python environment with the optional speech models, speaker engines or Claude cleanup installed. An absolute path works when launching from Finder.")
+                TextField("Speech Python (optional)", text: settings.speechPythonExecutable)
+                    .textFieldStyle(.roundedBorder)
+                Text("Speech models can use a separate environment. Leave it empty to use the Python executable above for all helpers. Use absolute paths when launching from Finder.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Audio") {

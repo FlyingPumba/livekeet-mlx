@@ -30,6 +30,17 @@ final class SpeechModelTests: XCTestCase {
         XCTAssertEqual(config.speechLanguage, "es")
     }
 
+    func testSpeechEnvironmentCanBeSeparateFromSpeakerHelpers() throws {
+        let config = try LivekeetConfig.parse("""
+        [python]
+        executable = "/speakers/bin/python"
+        speech_executable = "/speech/bin/python"
+        """)
+        XCTAssertEqual(config.pythonExecutable, "/speakers/bin/python")
+        XCTAssertEqual(config.speechPythonExecutable, "/speech/bin/python")
+        XCTAssertNil(LivekeetConfig().speechPythonExecutable)
+    }
+
     func testInputLanguageDoesNotAccidentallyRequestGraniteTranslation() {
         let model = FakeSpeechModel()
         for descriptor in [ModelCatalog.cohere, ModelCatalog.canary] {

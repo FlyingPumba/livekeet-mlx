@@ -216,6 +216,16 @@ final class AppSettings {
         }
     }
 
+    var speechPythonExecutable: String {
+        get {
+            access(keyPath: \.speechPythonExecutable)
+            return Self.defaults.string(forKey: "speechPythonExecutable") ?? ""
+        }
+        set {
+            withMutation(keyPath: \.speechPythonExecutable) { Self.defaults.set(newValue, forKey: "speechPythonExecutable") }
+        }
+    }
+
     var speechLanguage: String {
         get {
             access(keyPath: \.speechLanguage)
@@ -228,6 +238,10 @@ final class AppSettings {
 
     func selectModel(_ id: String) {
         defaultModel = ModelCatalog.canonicalID(for: id)
+        if let model = ModelCatalog.descriptor(for: defaultModel), model.requiresLanguage,
+           !model.languageCodes.contains(speechLanguage) {
+            speechLanguage = ""
+        }
     }
 
     func importCLISettings() throws {
@@ -246,6 +260,7 @@ final class AppSettings {
         correctionSystemPrompt = config.correctionSystemPrompt
         correctionTimeout = config.correctionTimeout
         pythonExecutable = config.pythonExecutable
+        speechPythonExecutable = config.speechPythonExecutable ?? ""
     }
 
     // MARK: - Computed Helpers
@@ -278,7 +293,8 @@ final class AppSettings {
             correctionTimeout: correctionTimeout,
             inputDevice: inputDevice.isEmpty || systemOnly ? nil : inputDevice,
             diarizationEngine: DiarizationEngine(rawValue: diarizationEngine) ?? .sortformer,
-            pythonExecutable: pythonExecutable
+            pythonExecutable: pythonExecutable,
+            speechPythonExecutable: speechPythonExecutable.isEmpty ? nil : speechPythonExecutable
         )
         // Secrets and replacement dictionaries stay in the user's existing TOML file.
         if let shared = try? LivekeetConfig.load() {
