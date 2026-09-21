@@ -1,5 +1,12 @@
 import Foundation
 
+public struct TranscriptLine: Identifiable, Sendable {
+    public let id: Int
+    public let timestamp: String
+    public let speaker: String
+    public let text: String
+}
+
 /// Edits only timestamped speaker labels, preserving transcript text and metadata.
 public struct TranscriptDocument {
     public let content: String
@@ -8,6 +15,14 @@ public struct TranscriptDocument {
     )
 
     public init(content: String) { self.content = content }
+
+    public var lines: [TranscriptLine] {
+        let source = content as NSString
+        return matches.enumerated().map { index, match in
+            TranscriptLine(id: index, timestamp: source.substring(with: NSRange(location: match.range.location + 1, length: 8)),
+                           speaker: source.substring(with: match.range(at: 1)), text: source.substring(with: match.range(at: 2)))
+        }
+    }
 
     public var speakers: [String] {
         var seen = Set<String>()

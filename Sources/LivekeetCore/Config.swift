@@ -17,6 +17,7 @@ public struct LivekeetConfig: Sendable {
     public var micOnly: Bool
     public var systemOnly: Bool
     public var showStatus: Bool
+    public var saveAudio: Bool
     public var dumpAudio: Bool
     public var disableDiarization: Bool
     public var enableCorrection: Bool
@@ -32,7 +33,7 @@ public struct LivekeetConfig: Sendable {
     public var pyannoteToken: String?
 
     public init(
-        outputDirectory: String = "",
+        outputDirectory: String = "~/recordings",
         filenamePattern: String = "{datetime}.md",
         speakerName: String = "Me",
         defaultModel: String = ModelCatalog.parakeetV3.id,
@@ -41,6 +42,7 @@ public struct LivekeetConfig: Sendable {
         micOnly: Bool = false,
         systemOnly: Bool = false,
         showStatus: Bool = false,
+        saveAudio: Bool = false,
         dumpAudio: Bool = false,
         disableDiarization: Bool = false,
         enableCorrection: Bool = false,
@@ -64,6 +66,7 @@ public struct LivekeetConfig: Sendable {
         self.micOnly = micOnly
         self.systemOnly = systemOnly
         self.showStatus = showStatus
+        self.saveAudio = saveAudio
         self.dumpAudio = dumpAudio
         self.disableDiarization = disableDiarization
         self.enableCorrection = enableCorrection
@@ -112,6 +115,7 @@ public struct LivekeetConfig: Sendable {
         if let output = toml["output"]?.table {
             config.outputDirectory = output["directory"]?.string ?? config.outputDirectory
             config.filenamePattern = output["filename"]?.string ?? config.filenamePattern
+            config.saveAudio = output["save_audio"]?.bool ?? false
         }
         if let speaker = toml["speaker"]?.table {
             config.speakerName = speaker["name"]?.string ?? config.speakerName
@@ -204,11 +208,12 @@ public struct LivekeetConfig: Sendable {
     # livekeet configuration
 
     [output]
-    # Directory for transcripts (empty = current directory)
-    directory = ""
+    # Directory for Markdown recordings (empty also uses ~/recordings)
+    directory = "~/recordings"
     # Filename pattern: {date}, {time}, {datetime}, {names}, or any static name
     # Examples: "{datetime}.md", "{date}-meeting.md", "transcript.md"
     filename = "{datetime}.md"
+    save_audio = false # retain full microphone/system WAV files beside the transcript
 
     [speaker]
     # Your name in transcripts (when using system audio for calls)

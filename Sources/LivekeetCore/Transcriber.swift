@@ -23,6 +23,7 @@ struct SpeakerKey: Hashable {
 // MARK: - Transcript Event
 
 public enum TranscriptEvent: Sendable {
+    case started(Recording)
     case segment(TranscriptSegment)
     case rewrite([TranscriptSegment])
     case completed(outputPath: String)
@@ -137,6 +138,9 @@ public actor Transcriber {
     private var isStopped = false
     private var segmentCounter = 0
     private let audioDumpDir: URL?
+    private let recordingAudio: RecordingAudio?
+    private let recordingAudioDirectory: URL?
+    private var libraryRecordingID: UUID?
 
     // Transcription work queue — decouples STT inference from audio loop
     private let transcriptionStream: AsyncStream<TranscriptionWorkItem>
@@ -294,9 +298,15 @@ public actor Transcriber {
             self.audioDumpDir = nil
         }
 
+        let audioDirectory = uniquePath.deletingPathExtension().appendingPathExtension("audio")
+        self.recordingAudioDirectory = config.saveAudio || config.dumpAudio ? audioDirectory : nil
+        self.recordingAudio = config.saveAudio
+            ? try RecordingAudio(directory: audioDirectory, microphone: !config.systemOnly, system: !config.micOnly)
+            : nil
+
         // Disk-backed PCM storage for batch diarization
         let pcmDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("livekeet_pcm_\(ProcessInfo.processInfo.processIdentifier)")
+            .appendingPathComponent("livekeet_pcm_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: pcmDir, withIntermediateDirectories: true)
         self.pcmTempDir = pcmDir
         self.micPCM = try AppendablePCM(url: pcmDir.appendingPathComponent("mic.pcm"))
@@ -353,10 +363,23 @@ public actor Transcriber {
             await capture.stop()
             await pythonDiarizer?.stop()
             await pythonSpeech?.stop()
+            recordingAudio?.finish()
             micPCM.cleanup()
             sysPCM.cleanup()
             try? FileManager.default.removeItem(at: pcmTempDir)
             throw error
+        }
+
+        do {
+            let recording = try await RecordingLibrary.shared.begin(
+                transcript: outputPath, audioDirectory: recordingAudioDirectory,
+                modelID: config.modelName, participants: [config.speakerName] + config.otherNames
+            )
+            libraryRecordingID = recording.id
+            eventContinuation.yield(.started(recording))
+        } catch {
+            eventContinuation.yield(.warning("Recording history could not be updated: \(error.localizedDescription). Transcript: \(outputPath.path)"))
+            Log.warning("Could not index recording: \(error)")
         }
 
         if config.systemOnly {
@@ -422,6 +445,14 @@ public actor Transcriber {
         await pythonSpeech?.stop()
         await writer.writeFooter()
         await capture.stop()
+        recordingAudio?.finish()
+        if let id = libraryRecordingID {
+            do {
+                let end = recordingStartTime?.addingTimeInterval(max(micPCM.audioSeconds, sysPCM.audioSeconds)) ?? Date()
+                try await RecordingLibrary.shared.finish(id: id, date: end)
+            }
+            catch { eventContinuation.yield(.warning("Transcript saved, but recording history could not be finalized: \(error.localizedDescription)")) }
+        }
 
         // Clean up disk-backed PCM files
         micPCM.cleanup()
@@ -444,6 +475,12 @@ public actor Transcriber {
 
     private func processChunk(_ chunk: AudioChunk) async {
         lastAudioTime = chunk.timestamp
+        do { try recordingAudio?.append(microphone: chunk.mic, system: chunk.system) }
+        catch {
+            eventContinuation.yield(.warning("Recording stopped because audio could not be saved: \(error.localizedDescription)"))
+            stop()
+            return
+        }
 
         // Set recording start time on first chunk
         if recordingStartTime == nil {

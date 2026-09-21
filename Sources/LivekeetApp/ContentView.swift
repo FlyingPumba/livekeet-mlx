@@ -3,14 +3,81 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AppSettings.self) private var settings
-    @State private var viewModel = TranscriptViewModel()
+    @Environment(TranscriptViewModel.self) private var viewModel
+    @Environment(RecordingHistoryModel.self) private var history
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var selectedRecordingID: UUID?
+    @State private var recordingName = ""
+    @State private var recordingFolder: String?
+    @State private var saveAudio = false
 
     var body: some View {
+        NavigationSplitView {
+            RecordingHistorySidebar(viewModel: viewModel, selection: $selectedRecordingID) {
+                selectedRecordingID = nil
+                recordingName = ""
+                recordingFolder = nil
+                saveAudio = false
+                viewModel.recordingID = nil
+                viewModel.savedFilePath = nil
+                viewModel.segments = []
+                viewModel.errorMessage = nil
+            }
+        } detail: {
+            if let id = selectedRecordingID,
+               id != viewModel.recordingID,
+               let recording = history.recordings.first(where: { $0.id == id }) {
+                SavedRecordingView(recording: recording)
+            } else {
+                recordingPane
+            }
+        }
+        .frame(minWidth: 960, minHeight: 500)
+        .task { await history.refresh(discovering: settings.resolvedOutputDirectory) }
+        .onChange(of: viewModel.recordingID) { _, id in
+            selectedRecordingID = id
+            Task { await history.refresh() }
+        }
+        .onChange(of: viewModel.savedFilePath) { _, path in
+            if path != nil { Task { await history.refresh() } }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await history.refresh(discovering: settings.resolvedOutputDirectory) } }
+        }
+        .onChange(of: settings.outputDirectory) { _, _ in
+            Task { await history.refresh(discovering: settings.resolvedOutputDirectory) }
+        }
+    }
+
+    @ViewBuilder
+    private var recordingPane: some View {
         @Bindable var settings = settings
+        @Bindable var viewModel = viewModel
 
         VStack(spacing: 0) {
-            // Toolbar
+            // Settings here apply to this recording, without changing the default folder.
             VStack(spacing: 10) {
+                HStack {
+                    TextField("Recording name (optional)", text: $recordingName)
+                        .textFieldStyle(.plain).font(.title3.weight(.medium))
+                        .disabled(viewModel.isRecording)
+                    Spacer()
+                }
+                HStack(spacing: 8) {
+                    Image(systemName: "folder").foregroundStyle(.secondary)
+                    Text(recordingFolder ?? settings.resolvedOutputDirectory)
+                        .font(.caption).lineLimit(1).truncationMode(.middle)
+                        .foregroundStyle(.secondary).help(recordingFolder ?? settings.resolvedOutputDirectory)
+                    Button("Choose folder…") { chooseRecordingFolder() }
+                        .disabled(viewModel.isRecording)
+                    if recordingFolder != nil {
+                        Button("Use default") { recordingFolder = nil }.disabled(viewModel.isRecording)
+                    }
+                    Spacer()
+                    Toggle("Save full audio", isOn: $saveAudio)
+                        .font(.caption).toggleStyle(.checkbox).disabled(viewModel.isRecording)
+                        .help("Save microphone and system WAV files beside the transcript. Applies to this recording.")
+                }
                 HStack(spacing: 16) {
                     HStack(spacing: 8) {
                         Image(systemName: "person.2.fill")
@@ -170,7 +237,17 @@ struct ContentView: View {
                 viewModel.stopDebugPolling()
             }
         }
-        .frame(minWidth: 720, minHeight: 350)
+        .frame(minWidth: 680, minHeight: 350)
+    }
+
+    private func chooseRecordingFolder() {
+        let panel = NSOpenPanel()
+        panel.title = "Save this recording in…"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = URL(fileURLWithPath: recordingFolder ?? settings.resolvedOutputDirectory)
+        if panel.runModal() == .OK { recordingFolder = panel.url?.path }
     }
 
     private var recordButton: some View {
@@ -178,7 +255,15 @@ struct ContentView: View {
             if viewModel.isRecording {
                 viewModel.stopRecording()
             } else {
-                viewModel.startRecording(config: settings.buildConfig(otherNames: viewModel.otherNamesList))
+                var config = settings.buildConfig(otherNames: viewModel.otherNamesList)
+                if let recordingFolder { config.outputDirectory = recordingFolder }
+                let name = recordingName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty {
+                    let safeName = name.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "\\", with: "_").replacingOccurrences(of: ":", with: "-")
+                    config.filenamePattern = safeName.hasSuffix(".md") ? safeName : safeName + ".md"
+                }
+                config.saveAudio = saveAudio
+                viewModel.startRecording(config: config)
             }
         }) {
             HStack(spacing: 6) {

@@ -266,11 +266,8 @@ final class AppSettings {
     // MARK: - Computed Helpers
 
     var resolvedOutputDirectory: String {
-        if outputDirectory.isEmpty {
-            return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
-                .first?.path ?? NSHomeDirectory()
-        }
-        return outputDirectory
+        let directory = outputDirectory.isEmpty ? "~/recordings" : outputDirectory
+        return NSString(string: directory).expandingTildeInPath
     }
 
     func buildConfig(otherNames: [String]) -> LivekeetConfig {

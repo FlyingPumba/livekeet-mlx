@@ -45,8 +45,18 @@ final class CLICompatibilityTests: XCTestCase {
     func testDefaultConfigRoundTripsAndKeepsCleanupOptIn() throws {
         let config = try LivekeetConfig.parse(LivekeetConfig.defaultConfigContent)
         XCTAssertFalse(config.enableCorrection)
+        XCTAssertEqual(config.outputDirectory, "~/recordings")
         XCTAssertTrue(config.disableDiarization)
         XCTAssertEqual(config.diarizationEngine, .sortformer)
+    }
+
+    func testDefaultAndLegacyEmptyOutputUseHomeRecordings() throws {
+        let expected = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("recordings")
+        for config in [LivekeetConfig(), try LivekeetConfig.parse("[output]\ndirectory = ''")] {
+            XCTAssertEqual(resolveOutputPath(arg: nil, config: config).deletingLastPathComponent().path, expected.path)
+            let chosen = "/tmp/livekeet-selected-meeting.md"
+            XCTAssertEqual(resolveOutputPath(arg: chosen, config: config).path, chosen)
+        }
     }
 
     func testSpeakerSwapDoesNotChangeQuotesOrMetadata() throws {

@@ -80,8 +80,9 @@ Ctrl+C finishes queued transcription, speaker analysis, and remaining cleanup be
 
 ```toml
 [output]
-directory = "~/Documents/Transcripts"
+directory = "~/recordings"
 filename = "{datetime}-{names}.md"
+save_audio = false
 
 [speaker]
 name = "Me"
@@ -115,6 +116,19 @@ Filename placeholders: `{date}`, `{time}`, `{datetime}`, `{names}`. Names join w
 Enter other speakers' names in the main recording window. They apply only to that recording and clear after it is saved; your own name remains a persistent preference in General settings.
 
 The Mac app keeps its own persistent preferences. **Settings → General → Import settings from CLI config** copies CLI preferences into the app. Microphone selection and all three speaker engines are available in Settings. The app reads the TOML replacement dictionary and pyannote token at the start of each recording. Use an absolute Python path for launching from Finder.
+
+## Recordings and local storage
+
+The app and CLI save Markdown recordings in **`~/recordings`** by default, creating the folder when needed. Set a different default in General settings or `[output].directory`. Empty directory settings also use `~/recordings`. A CLI output argument overrides the default; `livekeet ./` explicitly uses the current directory. In the app, **Choose folder…** applies only to the next recording. Existing files are left where they are.
+
+The main window lists one entry per recording, including recordings saved by the CLI or in other folders. Select an entry to read its transcript, see its location, or open it in Finder. The app discovers existing Livekeet transcripts in the default output folder; **Import transcripts…** adds older transcripts from elsewhere without copying them. File bookmarks follow moves and renames when macOS can resolve them. Disconnected drives and missing files stay in the list; **Locate transcript…** reconnects an entry to its file.
+
+- **Library index:** `~/Library/Application Support/Livekeet/recordings.json`. Stores identifiers, dates, model, participant names, and file paths/bookmarks; transcript files remain in their chosen folders. App and CLI share this index. Incomplete sessions remain marked Unfinished.
+- **Markdown files:** `~/recordings/<timestamp>.md` by default, or a chosen recording name/folder. Duplicate filenames get numeric suffixes.
+- **Optional full audio:** enable **Save full audio** for a recording, CLI `--save-audio`, or `[output].save_audio = true`. Saves `microphone.wav` and/or `system.wav` in `<transcript-stem>.audio` alongside the Markdown, depending on the captured sources. It is off by default. Advanced **Dump audio** separately retains individual speech clips in that folder. Temporary processing audio is removed when the session finishes normally.
+- **App preferences:** macOS UserDefaults, domain `com.livekeet.app` (normally `~/Library/Preferences/com.livekeet.app.plist`).
+- **CLI preferences:** `~/.config/livekeet/config.toml`.
+- **Downloaded models:** Hugging Face cache under `~/.cache/huggingface/hub` by default; the optional Python environment is under `~/.local/share/livekeet/python`.
 
 ## Speech models
 

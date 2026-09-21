@@ -5,11 +5,13 @@ import SwiftUI
 @main
 struct LivekeetApp: App {
     @State private var settings = AppSettings()
+    @State private var history = RecordingHistoryModel()
+    @State private var transcript = TranscriptViewModel()
     private let updaterController: SPUStandardUpdaterController
 
     init() {
         // A UI smoke launch must not download models or contact the update feed.
-        let smokeTest = CommandLine.arguments.contains("--smoke-test")
+        let smokeTest = CommandLine.arguments.contains("--smoke-test") || ProcessInfo.processInfo.environment["LIVEKEET_SMOKE_TEST"] == "1"
         updaterController = SPUStandardUpdaterController(
             startingUpdater: !smokeTest,
             updaterDelegate: nil,
@@ -35,8 +37,10 @@ struct LivekeetApp: App {
         WindowGroup {
             ContentView()
                 .environment(settings)
+                .environment(history)
+                .environment(transcript)
         }
-        .defaultSize(width: 700, height: 500)
+        .defaultSize(width: 1050, height: 650)
         .commands {
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesView(updater: updaterController.updater)

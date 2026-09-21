@@ -33,7 +33,7 @@ struct Record: AsyncParsableCommand {
         """
     )
 
-    @Argument(help: "Output file or directory; defaults to the config filename pattern.")
+    @Argument(help: "Output file or directory; defaults to ~/recordings and the config filename pattern, unless configured otherwise.")
     var output: String?
     @Option(name: [.short, .customLong("with")], help: "Comma-separated remote speaker names; multiple names enable diarization.")
     var with: String?
@@ -59,6 +59,8 @@ struct Record: AsyncParsableCommand {
     var noCleanup = false
     @Flag(help: "Show periodic recording status.")
     var status = false
+    @Flag(help: "Save full captured microphone/system audio as WAV files beside the transcript.")
+    var saveAudio = false
     @Flag(help: "Save speech segments as WAVs alongside the transcript.")
     var dumpAudio = false
     @Flag(help: "Skip interactive speaker renaming after recording.")
@@ -82,6 +84,7 @@ struct Record: AsyncParsableCommand {
         config.systemOnly = systemOnly
         config.showStatus = status
         config.dumpAudio = dumpAudio
+        if saveAudio { config.saveAudio = true }
         if let model { config.defaultModel = model }
         if let language { config.speechLanguage = language }
         if let device { config.inputDevice = device }

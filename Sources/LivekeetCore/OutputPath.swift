@@ -24,14 +24,10 @@ public func resolveOutputPath(arg: String?, config: LivekeetConfig) -> URL {
     // Use config pattern
     let filename = expandPattern(config.filenamePattern, date: now, names: config.otherNames)
 
-    if !config.outputDirectory.isEmpty {
-        let dir = NSString(string: config.outputDirectory).expandingTildeInPath
-        let dirURL = URL(fileURLWithPath: dir)
-        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
-        return dirURL.appendingPathComponent(filename)
-    }
-
-    return URL(fileURLWithPath: filename)
+    let directory = config.outputDirectory.isEmpty ? "~/recordings" : config.outputDirectory
+    let dirURL = URL(fileURLWithPath: NSString(string: directory).expandingTildeInPath)
+    try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+    return dirURL.appendingPathComponent(filename)
 }
 
 /// Ensure the output path doesn't overwrite an existing file by appending -2, -3, etc.

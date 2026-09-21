@@ -20,6 +20,7 @@ final class TranscriptViewModel {
     var isStopping = false
     var errorMessage: String?
     var savedFilePath: String?
+    var recordingID: UUID?
 
     // Participants belong to the current recording, not persistent app preferences.
     var otherNames = ""
@@ -50,6 +51,7 @@ final class TranscriptViewModel {
         isStopping = false
         errorMessage = nil
         savedFilePath = nil
+        recordingID = nil
         segments = []
 
         // Cancel any lingering tasks from a previous session
@@ -124,6 +126,8 @@ final class TranscriptViewModel {
 
     private func handleEvent(_ event: TranscriptEvent) {
         switch event {
+        case .started(let recording):
+            recordingID = recording.id
         case .segment(let seg):
             segments.append(DisplaySegment(
                 id: segments.count,

@@ -90,6 +90,16 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Recording history") {
+                Text("The main window remembers recordings in every folder. Choose a different folder for an individual meeting before recording.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("Library: \(RecordingLibrary.defaultDirectory.appendingPathComponent("recordings.json").path)")
+                    .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                Button("Show library folder") {
+                    NSWorkspace.shared.open(RecordingLibrary.defaultDirectory)
+                }
+            }
+
             Section("CLI Settings") {
                 Button("Import settings from CLI config") {
                     do { try self.settings.importCLISettings() }
