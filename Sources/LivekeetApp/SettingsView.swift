@@ -10,6 +10,9 @@ private enum ModelSelection: Hashable {
 struct SettingsView: View {
     @Environment(AppSettings.self) private var settings
     let updater: SPUUpdater
+    @State private var microphones = AudioCapture.listDevices()
+    @State private var importError: String?
+    @State private var customModelSelected = false
 
     var body: some View {
         @Bindable var settings = settings
@@ -30,11 +33,31 @@ struct SettingsView: View {
                     Label("Updates", systemImage: "arrow.triangle.2.circlepath")
                 }
         }
-        .frame(width: 460)
+        .frame(width: 540, height: 660)
+        .alert("Could not import settings", isPresented: Binding(
+            get: { importError != nil },
+            set: { if !$0 { importError = nil } }
+        )) {
+            Button("OK") { importError = nil }
+        } message: {
+            Text(importError ?? "")
+        }
     }
 
     private func generalTab(settings: Bindable<AppSettings>) -> some View {
         Form {
+            Section("Microphone") {
+                Picker("Input", selection: settings.inputDevice) {
+                    Text("System default").tag("")
+                    ForEach(microphones) { device in
+                        Text(device.name).tag(device.id)
+                    }
+                    if !self.settings.inputDevice.isEmpty && !microphones.contains(where: { $0.id == self.settings.inputDevice }) {
+                        Text(self.settings.inputDevice + " (saved selection)").tag(self.settings.inputDevice)
+                    }
+                }
+                Button("Refresh microphones") { microphones = AudioCapture.listDevices() }
+            }
             Section("Speakers") {
                 TextField("Your name", text: settings.speakerName)
                     .textFieldStyle(.roundedBorder)
@@ -63,7 +86,7 @@ struct SettingsView: View {
 
                 TextField("Filename pattern", text: settings.filenamePattern)
                     .textFieldStyle(.roundedBorder)
-                Text("Placeholders: {date}, {time}, {datetime}")
+                Text("Placeholders: {date}, {time}, {datetime}, {names}")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -71,18 +94,27 @@ struct SettingsView: View {
             Section("Model") {
                 modelPicker(settings: settings)
             }
+            Section("CLI Settings") {
+                Button("Import settings from CLI config") {
+                    do { try self.settings.importCLISettings() }
+                    catch { importError = error.localizedDescription }
+                }
+                Text("Copies preferences from ~/.config/livekeet/config.toml. Speaker credentials and word corrections are read from that file for each recording.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
     }
 
     private func modelPicker(settings: Bindable<AppSettings>) -> some View {
         let matched = ModelCatalog.descriptor(for: self.settings.defaultModel)
-        let selection: ModelSelection = matched.map { .preset($0.id) } ?? .custom
+        let selection: ModelSelection = customModelSelected ? .custom : matched.map { .preset($0.id) } ?? .custom
 
         return VStack(alignment: .leading, spacing: 6) {
             Picker("Default model", selection: Binding<ModelSelection>(
                 get: { selection },
                 set: { newValue in
+                    customModelSelected = newValue == .custom
                     if case .preset(let id) = newValue {
                         self.settings.defaultModel = id
                     }
@@ -94,7 +126,7 @@ struct SettingsView: View {
                 Text("Custom…").tag(ModelSelection.custom)
             }
 
-            if let matched {
+            if let matched, !customModelSelected {
                 Text("\(matched.subtitle) · \(matched.sizeDescription)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -114,6 +146,28 @@ struct SettingsView: View {
 
     private func advancedTab(settings: Bindable<AppSettings>) -> some View {
         Form {
+            Section("Speaker Identification") {
+                Toggle("Identify individual speakers", isOn: Binding(
+                    get: { !self.settings.disableDiarization },
+                    set: { self.settings.disableDiarization = !$0 }
+                ))
+                Picker("Engine", selection: settings.diarizationEngine) {
+                    Text("Sortformer (native)").tag("sortformer")
+                    Text("WeSpeaker (Python)").tag("wespeaker")
+                    Text("pyannote (Python)").tag("pyannote")
+                }
+                .disabled(self.settings.disableDiarization)
+                if self.settings.diarizationEngine != "sortformer" {
+                    Text("Requires the optional Python helper. pyannote also needs a Hugging Face token in the CLI config.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Section("Python Helper") {
+                TextField("Python executable", text: settings.pythonExecutable)
+                    .textFieldStyle(.roundedBorder)
+                Text("Choose the Python environment with the optional speaker engines or Claude cleanup installed. An absolute path works when launching from Finder.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Audio") {
                 Toggle("Dump audio to disk", isOn: settings.dumpAudio)
                 Text("Save raw audio chunks alongside the transcript for debugging.")
@@ -127,6 +181,8 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                TextField("Timeout (seconds)", value: settings.correctionTimeout, format: .number)
+                    .disabled(!self.settings.enableCorrection)
                 TextField("Model", text: settings.correctionModel)
                     .textFieldStyle(.roundedBorder)
                     .disabled(!self.settings.enableCorrection)

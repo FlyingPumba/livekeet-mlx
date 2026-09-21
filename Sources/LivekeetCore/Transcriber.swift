@@ -930,7 +930,7 @@ public actor Transcriber {
         let message = "Speaker identification failed: \(error.localizedDescription). Transcription continues with channel labels."
         Log.error(message)
         eventContinuation.yield(.warning(message))
-        FileHandle.standardError.write(Data((message + "\n").utf8))
+        if !Log.consoleEnabled { FileHandle.standardError.write(Data((message + "\n").utf8)) }
     }
 
     // MARK: - Speaker Renaming
@@ -1075,6 +1075,7 @@ public actor Transcriber {
     // MARK: - Status Workers
 
     private func statusWorker() async {
+        guard config.showStatus else { return }
         var nextStatus = Date().addingTimeInterval(statusInterval)
         while !isStopped {
             try? await Task.sleep(nanoseconds: 200_000_000)

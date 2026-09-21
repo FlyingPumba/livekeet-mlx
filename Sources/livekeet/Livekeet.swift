@@ -102,6 +102,8 @@ struct Record: AsyncParsableCommand {
         if initialize { try LivekeetConfig.createDefault(); return }
         if showConfig { Config.show(); return }
         if showDevices { Devices.show(); return }
+        Log.consoleEnabled = true
+        defer { Log.consoleEnabled = false }
         let config = resolvedConfig(try LivekeetConfig.load())
         if multilingual && model != nil { Self.warn("--multilingual overrides --model") }
         if micOnly && with != nil { Self.warn("--with is ignored in --mic-only mode") }

@@ -10,74 +10,74 @@ struct ContentView: View {
 
         VStack(spacing: 0) {
             // Toolbar
-            HStack(spacing: 16) {
-                HStack(spacing: 8) {
-                    Image(systemName: "person.2.fill")
-                        .foregroundStyle(.secondary)
-                        .font(.caption)
-                    TextField("Other speakers", text: $settings.otherNames)
-                        .textFieldStyle(.plain)
-                        .disabled(viewModel.isRecording)
+            VStack(spacing: 10) {
+                HStack(spacing: 16) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.2.fill")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                        TextField("Other speakers", text: $settings.otherNames)
+                            .textFieldStyle(.plain)
+                            .disabled(viewModel.isRecording)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+
+                    Spacer()
+                    SettingsLink { Image(systemName: "gear") }
+                        .buttonStyle(.plain)
+                    recordButton
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                HStack(spacing: 16) {
+                    Toggle(isOn: $settings.micOnly) {
+                        Label("Mic only", systemImage: "mic.fill")
+                            .font(.caption)
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .disabled(viewModel.isRecording)
+                    .fixedSize()
 
-                Toggle(isOn: $settings.micOnly) {
-                    Label("Mic only", systemImage: "mic.fill")
-                        .font(.caption)
+                    Toggle(isOn: $settings.systemOnly) {
+                        Label("System only", systemImage: "speaker.wave.2.fill")
+                            .font(.caption)
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .disabled(viewModel.isRecording)
+                    .fixedSize()
+
+                    Toggle(isOn: $settings.multilingual) {
+                        Label("Multi", systemImage: "globe")
+                            .font(.caption)
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .disabled(viewModel.isRecording)
+                    .fixedSize()
+
+                    Toggle(isOn: $settings.disableDiarization) {
+                        Label("No speakers", systemImage: "person.slash")
+                            .font(.caption)
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .disabled(viewModel.isRecording)
+                    .fixedSize()
+
+                    Toggle(isOn: $settings.enableCorrection) {
+                        Label("AI fix", systemImage: "wand.and.stars")
+                            .font(.caption)
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .disabled(viewModel.isRecording)
+                    .fixedSize()
+
+                    Spacer()
+
                 }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .disabled(viewModel.isRecording)
-                .fixedSize()
-
-                Toggle(isOn: $settings.systemOnly) {
-                    Label("System only", systemImage: "speaker.wave.2.fill")
-                        .font(.caption)
-                }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .disabled(viewModel.isRecording)
-                .fixedSize()
-
-                Toggle(isOn: $settings.multilingual) {
-                    Label("Multi", systemImage: "globe")
-                        .font(.caption)
-                }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .disabled(viewModel.isRecording)
-                .fixedSize()
-
-                Toggle(isOn: $settings.disableDiarization) {
-                    Label("No diar", systemImage: "person.slash")
-                        .font(.caption)
-                }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .disabled(viewModel.isRecording)
-                .fixedSize()
-
-                Toggle(isOn: $settings.enableCorrection) {
-                    Label("AI fix", systemImage: "wand.and.stars")
-                        .font(.caption)
-                }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .disabled(viewModel.isRecording)
-                .fixedSize()
-
-                Spacer()
-
-                SettingsLink {
-                    Image(systemName: "gear")
-                        .font(.callout)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-
-                recordButton
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -112,10 +112,14 @@ struct ContentView: View {
             }
 
             // Status bar
-            if viewModel.isLoading || viewModel.errorMessage != nil || viewModel.savedFilePath != nil {
+            if viewModel.isLoading || viewModel.isStopping || viewModel.errorMessage != nil || viewModel.savedFilePath != nil {
                 Divider()
                 HStack(spacing: 8) {
-                    if viewModel.isLoading {
+                    if viewModel.isStopping {
+                        ProgressView().controlSize(.small)
+                        Text("Finishing transcription and speaker analysis…")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else if viewModel.isLoading {
                         ProgressView()
                             .controlSize(.small)
                         Text("Loading models...")
@@ -174,7 +178,7 @@ struct ContentView: View {
                 viewModel.stopDebugPolling()
             }
         }
-        .frame(minWidth: 520, minHeight: 350)
+        .frame(minWidth: 720, minHeight: 350)
     }
 
     private var recordButton: some View {
@@ -209,6 +213,7 @@ struct ContentView: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(viewModel.isStopping)
         .keyboardShortcut("r", modifiers: .command)
     }
 }

@@ -8,7 +8,7 @@ APP_NAME := Livekeet
 BUNDLE_ID := com.livekeet.app
 VERSION ?= $(shell /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Sources/LivekeetApp/Info.plist)
 BUILD_NUMBER ?= 1
-SIGNING_IDENTITY ?= Apple Development
+SIGNING_IDENTITY ?= -
 RELEASE_SIGNING_IDENTITY ?= Developer ID Application
 ENTITLEMENTS := $(CURDIR)/Sources/LivekeetApp/LivekeetApp.entitlements
 INFO_PLIST := $(CURDIR)/Sources/LivekeetApp/Info.plist
@@ -81,10 +81,16 @@ _bundle:
 	@cp -R $(SPARKLE_FRAMEWORK) $(DIR)/$(APP_NAME).app/Contents/Frameworks/
 	@install_name_tool -add_rpath @loader_path/../Frameworks \
 		$(DIR)/$(APP_NAME).app/Contents/MacOS/LivekeetApp
-	@# Sign with entitlements
-	@codesign --force --deep --options runtime --sign "$(SIGN_ID)" \
-		--entitlements $(ENTITLEMENTS) \
-		$(DIR)/$(APP_NAME).app
+	@# Hardened runtime requires team-signed dependencies. Ad-hoc local builds have no team.
+	@if [ "$(SIGN_ID)" = "-" ]; then \
+		codesign --force --deep --sign - --entitlements $(ENTITLEMENTS) $(DIR)/$(APP_NAME).app; \
+	else \
+		codesign --force --deep --options runtime --sign "$(SIGN_ID)" \
+			$(DIR)/$(APP_NAME).app/Contents/Frameworks/Sparkle.framework; \
+		codesign --force --deep --options runtime --sign "$(SIGN_ID)" \
+			--entitlements $(ENTITLEMENTS) $(DIR)/$(APP_NAME).app; \
+	fi
+	@codesign --verify --deep --strict $(DIR)/$(APP_NAME).app
 
 # --- DMG creation ---
 

@@ -8,8 +8,10 @@ struct LivekeetApp: App {
     private let updaterController: SPUStandardUpdaterController
 
     init() {
+        // A UI smoke launch must not download models or contact the update feed.
+        let smokeTest = CommandLine.arguments.contains("--smoke-test")
         updaterController = SPUStandardUpdaterController(
-            startingUpdater: true,
+            startingUpdater: !smokeTest,
             updaterDelegate: nil,
             userDriverDelegate: nil
         )
@@ -17,9 +19,10 @@ struct LivekeetApp: App {
         // Prewarm STT + diarization in the background so the first "Start Recording"
         // click is instant (or very close to it). Reads current settings via a fresh
         // AppSettings — UserDefaults-backed — and captures only the resulting values.
+        if smokeTest { return }
         let bootstrap = AppSettings()
         let modelName = bootstrap.defaultModel
-        let diarEnabled = !bootstrap.disableDiarization
+        let diarEnabled = !bootstrap.disableDiarization && bootstrap.diarizationEngine == "sortformer"
         Task.detached(priority: .utility) {
             await ModelPrewarmer.shared.startPrewarm(
                 sttModelName: modelName,
