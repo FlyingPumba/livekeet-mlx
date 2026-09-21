@@ -21,6 +21,16 @@ final class TranscriptViewModel {
     var errorMessage: String?
     var savedFilePath: String?
 
+    // Participants belong to the current recording, not persistent app preferences.
+    var otherNames = ""
+
+    var otherNamesList: [String] {
+        otherNames
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
     // Rename state
     var renamingChannel: String?
     var renamingSpeakerIndex: Int?
@@ -136,6 +146,7 @@ final class TranscriptViewModel {
             }
         case .completed(let path):
             savedFilePath = path
+            otherNames = ""
         case .warning(let message):
             errorMessage = message
         }

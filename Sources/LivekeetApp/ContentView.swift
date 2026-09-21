@@ -16,8 +16,9 @@ struct ContentView: View {
                         Image(systemName: "person.2.fill")
                             .foregroundStyle(.secondary)
                             .font(.caption)
-                        TextField("Other speakers", text: $settings.otherNames)
+                        TextField("Other speakers for this recording", text: $viewModel.otherNames)
                             .textFieldStyle(.plain)
+                            .help("Optional comma-separated names, for example Alice, Bob. Cleared after the recording is saved.")
                             .disabled(viewModel.isRecording)
                     }
                     .padding(.horizontal, 10)
@@ -186,7 +187,7 @@ struct ContentView: View {
             if viewModel.isRecording {
                 viewModel.stopRecording()
             } else {
-                viewModel.startRecording(config: settings.buildConfig())
+                viewModel.startRecording(config: settings.buildConfig(otherNames: viewModel.otherNamesList))
             }
         }) {
             HStack(spacing: 6) {

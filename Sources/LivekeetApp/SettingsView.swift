@@ -58,16 +58,10 @@ struct SettingsView: View {
                 }
                 Button("Refresh microphones") { microphones = AudioCapture.listDevices() }
             }
-            Section("Speakers") {
+            Section("Your identity") {
                 TextField("Your name", text: settings.speakerName)
                     .textFieldStyle(.roundedBorder)
                 Text("How you appear in the transcript.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                TextField("Other speakers", text: settings.otherNames)
-                    .textFieldStyle(.roundedBorder)
-                Text("Comma-separated names for remote participants.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

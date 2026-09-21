@@ -18,18 +18,6 @@ final class AppSettings {
         }
     }
 
-    var otherNames: String {
-        get {
-            access(keyPath: \.otherNames)
-            return Self.defaults.string(forKey: "otherNames") ?? ""
-        }
-        set {
-            withMutation(keyPath: \.otherNames) {
-                Self.defaults.set(newValue, forKey: "otherNames")
-            }
-        }
-    }
-
     var micOnly: Bool {
         get {
             access(keyPath: \.micOnly)
@@ -267,20 +255,13 @@ final class AppSettings {
         return outputDirectory
     }
 
-    var otherNamesList: [String] {
-        otherNames
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-    }
-
-    func buildConfig() -> LivekeetConfig {
+    func buildConfig(otherNames: [String]) -> LivekeetConfig {
         var config = LivekeetConfig(
             outputDirectory: resolvedOutputDirectory,
             filenamePattern: filenamePattern,
             speakerName: speakerName.isEmpty ? "Me" : speakerName,
             defaultModel: defaultModel,
-            otherNames: otherNamesList,
+            otherNames: otherNames,
             micOnly: micOnly,
             systemOnly: systemOnly,
             multilingual: multilingual,
