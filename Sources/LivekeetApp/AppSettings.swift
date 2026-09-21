@@ -75,7 +75,7 @@ final class AppSettings {
     var defaultModel: String {
         get {
             access(keyPath: \.defaultModel)
-            return ModelCatalog.canonicalID(for: Self.defaults.string(forKey: "defaultModel") ?? ModelCatalog.parakeetV2.id)
+            return ModelCatalog.canonicalID(for: Self.defaults.string(forKey: "defaultModel") ?? ModelCatalog.parakeetV3.id)
         }
         set {
             withMutation(keyPath: \.defaultModel) {

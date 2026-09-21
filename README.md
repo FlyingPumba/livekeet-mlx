@@ -87,7 +87,7 @@ filename = "{datetime}-{names}.md"
 name = "Me"
 
 [defaults]
-model = "mlx-community/parakeet-tdt-0.6b-v2"
+model = "mlx-community/parakeet-tdt-0.6b-v3"
 diarize = false
 engine = "sortformer"
 # language = "es" # required for Cohere and Canary
@@ -117,6 +117,8 @@ Enter other speakers' names in the main recording window. They apply only to tha
 The Mac app keeps its own persistent preferences. **Settings → General → Import settings from CLI config** copies CLI preferences into the app. Microphone selection and all three speaker engines are available in Settings. The app reads the TOML replacement dictionary and pyannote token at the start of each recording. Use an absolute Python path for launching from Finder.
 
 ## Speech models
+
+Parakeet TDT 0.6B v3 is the default for new app preferences and CLI configurations. Existing explicit model selections are preserved.
 
 **Settings → Models** selects the actual transcription model and shows its release date, strengths, tradeoffs, published WER, and source. There is no separate multilingual switch. The CLI uses `--model` or `[defaults].model`; `livekeet models` prints the same catalog.
 

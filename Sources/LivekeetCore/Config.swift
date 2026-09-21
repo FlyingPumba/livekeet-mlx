@@ -35,7 +35,7 @@ public struct LivekeetConfig: Sendable {
         outputDirectory: String = "",
         filenamePattern: String = "{datetime}.md",
         speakerName: String = "Me",
-        defaultModel: String = "mlx-community/parakeet-tdt-0.6b-v2",
+        defaultModel: String = ModelCatalog.parakeetV3.id,
         speechLanguage: String? = nil,
         otherNames: [String] = [],
         micOnly: Bool = false,
@@ -195,8 +195,8 @@ public struct LivekeetConfig: Sendable {
 
         Run livekeet models to compare all supported models.
         Models (downloaded on first use):
-          parakeet-tdt-0.6b-v2  English (default)
-          parakeet-tdt-0.6b-v3  Multilingual, 25 languages
+          parakeet-tdt-0.6b-v2  English
+          parakeet-tdt-0.6b-v3  Multilingual, 25 languages (default)
         """)
     }
 
@@ -216,9 +216,9 @@ public struct LivekeetConfig: Sendable {
 
     [defaults]
     # Available models (downloaded automatically on first use):
-    #   mlx-community/parakeet-tdt-0.6b-v2 - English (default)
-    #   mlx-community/parakeet-tdt-0.6b-v3  - Multilingual, 25 languages
-    model = "mlx-community/parakeet-tdt-0.6b-v2"
+    #   mlx-community/parakeet-tdt-0.6b-v2 - English
+    #   mlx-community/parakeet-tdt-0.6b-v3  - Multilingual, 25 languages (default)
+    model = "mlx-community/parakeet-tdt-0.6b-v3"
     # Required for Cohere and Canary; ISO code, e.g. es or en.
     # language = "es"
     diarize = false

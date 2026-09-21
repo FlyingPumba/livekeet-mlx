@@ -2,8 +2,8 @@ import XCTest
 @testable import LivekeetCore
 
 final class ModelCatalogTests: XCTestCase {
-    func testAvailableModelsIncludesDefaultParakeetV2() {
-        XCTAssertTrue(ModelCatalog.availableModels.contains { $0.id == "mlx-community/parakeet-tdt-0.6b-v2" })
+    func testAvailableModelsIncludesDefaultParakeetV3() {
+        XCTAssertTrue(ModelCatalog.availableModels.contains { $0.id == LivekeetConfig().modelName })
     }
 
     func testDescriptorLookupForKnownId() {
