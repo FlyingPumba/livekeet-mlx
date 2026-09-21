@@ -55,6 +55,17 @@ final class ArgumentTests: XCTestCase {
         }
     }
 
+    func testProjectControlsParseWithoutStartingModels() throws {
+        let command = try record(["Weekly.md", "--project", "Research"])
+        XCTAssertEqual(command.project, "Research")
+        XCTAssertEqual(command.output, "Weekly.md")
+        XCTAssertTrue(try Livekeet.parseAsRoot(["projects"]) is Projects.List)
+        let create = try XCTUnwrap(try Livekeet.parseAsRoot(["projects", "create", "Research", "--folder", "/tmp/research"]) as? Projects.Create)
+        XCTAssertEqual(create.name, "Research")
+        XCTAssertEqual(create.folder, "/tmp/research")
+        XCTAssertTrue(try Livekeet.parseAsRoot(["projects", "rename", "Research", "Studies"]) is Projects.Rename)
+    }
+
     func testUtilityAliasesAndCommands() throws {
         XCTAssertTrue(try record(["--init"]).initialize)
         XCTAssertTrue(try record(["--devices"]).showDevices)

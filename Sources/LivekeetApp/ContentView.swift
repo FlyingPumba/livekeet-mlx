@@ -7,21 +7,20 @@ struct ContentView: View {
     @Environment(RecordingHistoryModel.self) private var history
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedRecordingID: UUID?
+    @State private var selectedProjectID: UUID?
+    @State private var draftProjectID: UUID?
+
+    private var draftProject: RecordingProject? { history.projects.first { $0.id == draftProjectID } }
+    private var recordingOutputDirectory: String { draftProject?.folderURL.path ?? recordingFolder ?? settings.resolvedOutputDirectory }
     @State private var recordingName = ""
     @State private var recordingFolder: String?
     @State private var saveAudio = false
 
     var body: some View {
         NavigationSplitView {
-            RecordingHistorySidebar(viewModel: viewModel, selection: $selectedRecordingID) {
-                selectedRecordingID = nil
-                recordingName = ""
-                recordingFolder = nil
-                saveAudio = false
-                viewModel.recordingID = nil
-                viewModel.savedFilePath = nil
-                viewModel.segments = []
-                viewModel.errorMessage = nil
+            RecordingHistorySidebar(viewModel: viewModel, selection: $selectedRecordingID,
+                                    projectSelection: $selectedProjectID, projectSelected: selectProject) {
+                prepareNewRecording()
             }
         } detail: {
             if let id = selectedRecordingID,
@@ -34,6 +33,13 @@ struct ContentView: View {
         }
         .frame(minWidth: 960, minHeight: 500)
         .task { await history.refresh(discovering: settings.resolvedOutputDirectory) }
+        .onChange(of: history.movingRecordingID) { previous, current in
+            if current == nil, previous == viewModel.recordingID, !viewModel.isRecording {
+                viewModel.recordingID = nil
+                viewModel.savedFilePath = nil
+            }
+        }
+        .onChange(of: draftProjectID) { _, _ in recordingFolder = nil }
         .onChange(of: viewModel.recordingID) { _, id in
             selectedRecordingID = id
             Task { await history.refresh() }
@@ -62,16 +68,28 @@ struct ContentView: View {
                         .textFieldStyle(.plain).font(.title3.weight(.medium))
                         .disabled(viewModel.isRecording)
                     Spacer()
+                    Picker("Project", selection: $draftProjectID) {
+                        Text("No project").tag(nil as UUID?)
+                        ForEach(history.projects) { project in
+                            Text(project.name).tag(Optional(project.id))
+                        }
+                    }
+                    .frame(maxWidth: 260).disabled(viewModel.isRecording)
                 }
                 HStack(spacing: 8) {
                     Image(systemName: "folder").foregroundStyle(.secondary)
-                    Text(recordingFolder ?? settings.resolvedOutputDirectory)
+                    Text(recordingOutputDirectory)
                         .font(.caption).lineLimit(1).truncationMode(.middle)
-                        .foregroundStyle(.secondary).help(recordingFolder ?? settings.resolvedOutputDirectory)
-                    Button("Choose folder…") { chooseRecordingFolder() }
-                        .disabled(viewModel.isRecording)
-                    if recordingFolder != nil {
-                        Button("Use default") { recordingFolder = nil }.disabled(viewModel.isRecording)
+                        .foregroundStyle(.secondary).help(recordingOutputDirectory)
+                    if draftProjectID == nil {
+                        Button("Choose folder…") { chooseRecordingFolder() }
+                            .disabled(viewModel.isRecording)
+                        if recordingFolder != nil {
+                            Button("Use default") { recordingFolder = nil }.disabled(viewModel.isRecording)
+                        }
+                    } else if draftProject?.isAvailable != true {
+                        Label("Folder unavailable", systemImage: "exclamationmark.triangle")
+                            .font(.caption).foregroundStyle(.red)
                     }
                     Spacer()
                     Toggle("Save full audio", isOn: $saveAudio)
@@ -240,6 +258,25 @@ struct ContentView: View {
         .frame(minWidth: 680, minHeight: 350)
     }
 
+    private func selectProject(_ id: UUID?) {
+        selectedProjectID = id
+        if !viewModel.isRecording { prepareNewRecording() }
+        else { selectedRecordingID = history.recordings(in: id).first?.id }
+    }
+
+    private func prepareNewRecording() {
+        selectedRecordingID = nil
+        draftProjectID = selectedProjectID
+        recordingName = ""
+        recordingFolder = nil
+        saveAudio = false
+        viewModel.recordingID = nil
+        viewModel.savedFilePath = nil
+        viewModel.segments = []
+        viewModel.errorMessage = nil
+        viewModel.otherNames = ""
+    }
+
     private func chooseRecordingFolder() {
         let panel = NSOpenPanel()
         panel.title = "Save this recording in…"
@@ -256,13 +293,21 @@ struct ContentView: View {
                 viewModel.stopRecording()
             } else {
                 var config = settings.buildConfig(otherNames: viewModel.otherNamesList)
-                if let recordingFolder { config.outputDirectory = recordingFolder }
+                config.outputDirectory = recordingOutputDirectory
                 let name = recordingName.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !name.isEmpty {
                     let safeName = name.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "\\", with: "_").replacingOccurrences(of: ":", with: "-")
                     config.filenamePattern = safeName.hasSuffix(".md") ? safeName : safeName + ".md"
                 }
                 config.saveAudio = saveAudio
+                if let draftProjectID {
+                    guard let project = history.projects.first(where: { $0.id == draftProjectID }), project.isAvailable else {
+                        viewModel.errorMessage = "The project folder is unavailable. Reconnect its drive before recording."
+                        return
+                    }
+                    do { _ = try project.outputPath(argument: nil, config: config) }
+                    catch { viewModel.errorMessage = error.localizedDescription; return }
+                }
                 viewModel.startRecording(config: config)
             }
         }) {

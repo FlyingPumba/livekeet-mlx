@@ -6,7 +6,14 @@ struct RecordingHistorySidebar: View {
     @Environment(RecordingHistoryModel.self) private var history
     @Bindable var viewModel: TranscriptViewModel
     @Binding var selection: UUID?
+    @Binding var projectSelection: UUID?
+    let projectSelected: (UUID?) -> Void
     let newRecording: () -> Void
+    @State private var editingProject: RecordingProject?
+    @State private var showingProjectEditor = false
+    @State private var removingProject: RecordingProject?
+
+    private var visibleRecordings: [Recording] { history.recordings(in: projectSelection) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,6 +26,41 @@ struct RecordingHistorySidebar: View {
                     .disabled(viewModel.isRecording)
             }
             .padding(14)
+            HStack {
+                Text("Projects").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    editingProject = nil
+                    showingProjectEditor = true
+                } label: { Image(systemName: "folder.badge.plus") }
+                .buttonStyle(.borderless).help("New project")
+            }.padding(.horizontal, 14).padding(.bottom, 6)
+            ScrollView {
+                VStack(spacing: 2) {
+                    projectRow(name: "All recordings", symbol: "tray.full", id: nil, count: history.recordings.count)
+                    ForEach(history.projects) { project in
+                        projectRow(name: project.name, symbol: project.isAvailable ? "folder" : "questionmark.folder",
+                                   id: project.id, count: history.recordings(in: project.id).count)
+                            .help(project.folderURL.path)
+                            .contextMenu {
+                                Button("Rename project…") {
+                                    editingProject = project
+                                    showingProjectEditor = true
+                                }
+                                Button("Show folder") { NSWorkspace.shared.open(project.folderURL) }
+                                    .disabled(!project.isAvailable)
+                                Button("Remove project…") { removingProject = project }
+                                    .disabled(viewModel.isRecording)
+                            }
+                    }
+                }.padding(.horizontal, 8)
+            }
+            .frame(height: min(CGFloat(history.projects.count + 1) * 32, 180))
+            Divider().padding(.top, 8)
+            if let project = history.projects.first(where: { $0.id == projectSelection }) {
+                Text(project.name).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14).padding(.top, 10)
+            }
             if viewModel.isRecording {
                 Button {
                     selection = viewModel.recordingID
@@ -30,7 +72,7 @@ struct RecordingHistorySidebar: View {
                 .padding(.horizontal, 12).padding(.bottom, 8)
             }
             List(selection: $selection) {
-                ForEach(history.recordings) { recording in
+                ForEach(visibleRecordings) { recording in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(recording.title).font(.callout.weight(.medium)).lineLimit(2)
                         Text(recording.startedAt.formatted(date: .abbreviated, time: .shortened))
@@ -49,13 +91,24 @@ struct RecordingHistorySidebar: View {
                         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([recording.transcriptURL]) }
                             .disabled(!recording.isAvailable)
                         Button("Locate transcript…") { Task { await history.locate(recording) } }
+                            .disabled(recording.status == .unfinished)
+                        if !history.projects.isEmpty {
+                            Menu("Move to project") {
+                                ForEach(history.projects) { project in
+                                    Button(project.name) { Task { await history.move(recording, to: project) } }
+                                        .disabled(project.contains(recording) || !project.isAvailable)
+                                }
+                            }
+                            .disabled(recording.status == .unfinished || !recording.isAvailable || history.movingRecordingID != nil ||
+                                      (viewModel.isRecording && recording.id == viewModel.recordingID))
+                        }
                     }
                 }
             }
             .listStyle(.sidebar)
             .overlay {
-                if history.recordings.isEmpty {
-                    Text("Your saved recordings will appear here, wherever you save them.")
+                if visibleRecordings.isEmpty {
+                    Text(projectSelection == nil ? "Your saved recordings will appear here, wherever you save them." : "No recordings yet. New recordings in this project will save to its folder.")
                         .font(.callout).foregroundStyle(.secondary)
                         .multilineTextAlignment(.center).padding(20)
                 }
@@ -63,7 +116,12 @@ struct RecordingHistorySidebar: View {
             Divider()
             HStack {
                 Button("Import transcripts…") {
-                    Task { if let id = await history.importTranscripts() { selection = id } }
+                    Task {
+                        if let id = await history.importTranscripts() {
+                            projectSelection = nil
+                            selection = id
+                        }
+                    }
                 }
                 .buttonStyle(.borderless)
                 Spacer()
@@ -76,6 +134,41 @@ struct RecordingHistorySidebar: View {
             }
         }
         .navigationSplitViewColumnWidth(min: 210, ideal: 250, max: 350)
+        .sheet(isPresented: $showingProjectEditor) {
+            ProjectEditorView(project: editingProject) { id in projectSelected(id) }
+                .environment(history)
+        }
+        .confirmationDialog("Remove project?", isPresented: Binding(
+            get: { removingProject != nil }, set: { if !$0 { removingProject = nil } }
+        ), titleVisibility: .visible) {
+            if let project = removingProject {
+                Button("Remove \(project.name)") {
+                    Task {
+                        if await history.removeProject(project), projectSelection == project.id { projectSelected(nil) }
+                        removingProject = nil
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) { removingProject = nil }
+        } message: {
+            Text("Recordings and folders stay on disk and remain in All recordings.")
+        }
+    }
+
+    private func projectRow(name: String, symbol: String, id: UUID?, count: Int) -> some View {
+        Button { projectSelected(id) } label: {
+            HStack {
+                Label(name, systemImage: symbol).lineLimit(1)
+                Spacer()
+                Text(count.formatted()).font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8).frame(height: 30)
+            .background(projectSelection == id ? Color.accentColor.opacity(0.15) : .clear,
+                        in: RoundedRectangle(cornerRadius: 5))
+            .contentShape(Rectangle())
+        }.buttonStyle(.plain)
+        .accessibilityLabel("\(name), \(count) recordings")
+        .accessibilityAddTraits(projectSelection == id ? .isSelected : [])
     }
 }
 

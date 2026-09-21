@@ -56,8 +56,18 @@ public actor RecordingLibrary {
     private var indexURL: URL { directory.appendingPathComponent("recordings.json") }
 
     private struct Index: Codable {
-        var version = 1
+        var version = 2
         var recordings: [Recording] = []
+        var projects: [RecordingProject] = []
+
+        init() {}
+        private enum CodingKeys: String, CodingKey { case version, recordings, projects }
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            version = try values.decode(Int.self, forKey: .version)
+            recordings = try values.decode([Recording].self, forKey: .recordings)
+            projects = try values.decodeIfPresent([RecordingProject].self, forKey: .projects) ?? []
+        }
     }
 
     public init(directory: URL = RecordingLibrary.defaultDirectory) { self.directory = directory }
@@ -134,6 +144,107 @@ public actor RecordingLibrary {
         }
     }
 
+    public func projects() throws -> [RecordingProject] {
+        try locked { try read().projects.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
+    }
+
+    public func project(named nameOrID: String) throws -> RecordingProject {
+        guard let project = try projects().first(where: {
+            $0.id.uuidString.caseInsensitiveCompare(nameOrID) == .orderedSame || $0.name.caseInsensitiveCompare(nameOrID) == .orderedSame
+        }) else { throw LibraryError.missingProject }
+        return project
+    }
+
+    @discardableResult
+    public func createProject(name: String, folder: URL) throws -> RecordingProject {
+        try locked {
+            var index = try read()
+            let name = try Self.validProjectName(name, excluding: nil, in: index)
+            let path = folder.standardizedFileURL.resolvingSymlinksInPath().path
+            guard !index.projects.contains(where: { $0.folderURL.path == path }) else { throw LibraryError.duplicateProjectFolder }
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let project = RecordingProject(id: UUID(), name: name, folder: RecordingFile(url: folder), createdAt: Date())
+            index.projects.append(project)
+            try save(index)
+            return project
+        }
+    }
+
+    public func renameProject(id: UUID, name: String) throws {
+        try locked {
+            var index = try read()
+            guard let i = index.projects.firstIndex(where: { $0.id == id }) else { throw LibraryError.missingProject }
+            index.projects[i].name = try Self.validProjectName(name, excluding: id, in: index)
+            try save(index)
+        }
+    }
+
+    /// Removes the grouping only. All files and recording entries stay intact.
+    public func removeProject(id: UUID) throws {
+        try locked {
+            var index = try read()
+            index.projects.removeAll { $0.id == id }
+            try save(index)
+        }
+    }
+
+    /// Moves the transcript and its audio together, avoiding collisions and rolling back on failure.
+    public func moveRecording(id: UUID, toProject projectID: UUID) throws {
+        try locked {
+            var index = try read()
+            guard let i = index.recordings.firstIndex(where: { $0.id == id }) else { throw LibraryError.missingEntry }
+            guard let project = index.projects.first(where: { $0.id == projectID }) else { throw LibraryError.missingProject }
+            guard project.isAvailable else { throw LibraryError.projectFolderUnavailable }
+            let recording = index.recordings[i]
+            guard recording.status != .unfinished else { throw LibraryError.recordingInProgress }
+            guard recording.isAvailable else { throw CocoaError(.fileNoSuchFile) }
+            if project.contains(recording) { return }
+            let source = recording.transcriptURL
+            let audioSource = recording.audioDirectory?.url
+            if let audioSource, !FileManager.default.fileExists(atPath: audioSource.path) {
+                throw LibraryError.audioUnavailable
+            }
+            var target = project.folderURL.appendingPathComponent(source.lastPathComponent)
+            var suffix = 2
+            while FileManager.default.fileExists(atPath: target.path) ||
+                  FileManager.default.fileExists(atPath: target.deletingPathExtension().appendingPathExtension("audio").path) {
+                target = project.folderURL.appendingPathComponent("\(source.deletingPathExtension().lastPathComponent)-\(suffix).\(source.pathExtension)")
+                suffix += 1
+            }
+            let audioTarget = target.deletingPathExtension().appendingPathExtension("audio")
+            var moved: [(URL, URL)] = []
+            do {
+                if let audioSource {
+                    try FileManager.default.moveItem(at: audioSource, to: audioTarget)
+                    moved.append((audioSource, audioTarget))
+                }
+                try FileManager.default.moveItem(at: source, to: target)
+                moved.append((source, target))
+                index.recordings[i].transcript = RecordingFile(url: target)
+                index.recordings[i].audioDirectory = audioSource == nil ? nil : RecordingFile(url: audioTarget)
+                try save(index)
+            } catch {
+                let originalError = error
+                var recoveryErrors: [String] = []
+                for (original, destination) in moved.reversed() {
+                    do { try FileManager.default.moveItem(at: destination, to: original) }
+                    catch { recoveryErrors.append("\(destination.path): \(error.localizedDescription)") }
+                }
+                if !recoveryErrors.isEmpty { throw LibraryError.moveRecoveryFailed(recoveryErrors.joined(separator: "\n")) }
+                throw originalError
+            }
+        }
+    }
+
+    private static func validProjectName(_ name: String, excluding id: UUID?, in index: Index) throws -> String {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !name.contains("\n"), !name.contains("\r") else { throw LibraryError.invalidProjectName }
+        guard !index.projects.contains(where: { $0.id != id && $0.name.caseInsensitiveCompare(name) == .orderedSame }) else {
+            throw LibraryError.duplicateProjectName
+        }
+        return name
+    }
+
     private static func transcriptDate(_ url: URL) throws -> Date {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
@@ -150,11 +261,13 @@ public actor RecordingLibrary {
     private func read() throws -> Index {
         guard FileManager.default.fileExists(atPath: indexURL.path) else { return Index() }
         let index = try JSONDecoder().decode(Index.self, from: Data(contentsOf: indexURL))
-        guard index.version == 1 else { throw LibraryError.unsupportedVersion }
+        guard (1...2).contains(index.version) else { throw LibraryError.unsupportedVersion }
         return index
     }
 
     private func save(_ index: Index) throws {
+        var index = index
+        index.version = 2
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(index).write(to: indexURL, options: .atomic)
@@ -172,8 +285,20 @@ public actor RecordingLibrary {
 
     public enum LibraryError: LocalizedError {
         case missingEntry, notTranscript, duplicateFile, unsupportedVersion
+        case missingProject, invalidProjectName, duplicateProjectName, duplicateProjectFolder
+        case projectFolderUnavailable, outputOutsideProject, recordingInProgress, audioUnavailable
+        case moveRecoveryFailed(String)
         public var errorDescription: String? {
             switch self {
+            case .missingProject: "Project not found. Refresh the list or run livekeet projects list."
+            case .invalidProjectName: "Enter a project name without line breaks."
+            case .duplicateProjectName: "A project with that name already exists."
+            case .duplicateProjectFolder: "That folder already belongs to a project."
+            case .projectFolderUnavailable: "The project folder is unavailable. Reconnect its drive before recording or moving files."
+            case .outputOutsideProject: "Project recordings must save directly in the project folder. Use a filename or omit the output argument."
+            case .recordingInProgress: "Finish the recording before moving it to a project."
+            case .audioUnavailable: "The recording’s audio folder is unavailable. Reconnect it before moving the recording."
+            case .moveRecoveryFailed(let details): "The move could not finish or be fully undone. Some files remain at these locations: \(details)"
             case .missingEntry: "This recording is no longer in the library. Refresh and try again."
             case .notTranscript: "Choose a Livekeet Markdown transcript with a Transcription header."
             case .duplicateFile: "That transcript is already in the recordings list."

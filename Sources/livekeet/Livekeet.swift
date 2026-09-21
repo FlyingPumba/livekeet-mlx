@@ -17,7 +17,7 @@ struct Livekeet: AsyncParsableCommand {
         abstract: "Live microphone and system-audio transcription to Markdown.",
         discussion: "Run livekeet record --help for recording controls. Utility commands never load speech models.",
         version: CLIVersion.current,
-        subcommands: [Record.self, Init.self, Config.self, Devices.self, Models.self, Relabel.self, Update.self],
+        subcommands: [Record.self, Init.self, Config.self, Devices.self, Models.self, Projects.self, Relabel.self, Update.self],
         defaultSubcommand: Record.self
     )
 }
@@ -35,6 +35,8 @@ struct Record: AsyncParsableCommand {
 
     @Argument(help: "Output file or directory; defaults to ~/recordings and the config filename pattern, unless configured otherwise.")
     var output: String?
+    @Option(help: "Project name or ID; saves the recording in that project’s folder.")
+    var project: String?
     @Option(name: [.short, .customLong("with")], help: "Comma-separated remote speaker names; multiple names enable diarization.")
     var with: String?
     @Flag(name: [.customShort("m"), .long], help: "Capture microphone only.")
@@ -108,6 +110,12 @@ struct Record: AsyncParsableCommand {
         Log.consoleEnabled = true
         defer { Log.consoleEnabled = false }
         let config = resolvedConfig(try LivekeetConfig.load())
+        var outputArgument = output
+        if let project {
+            let chosen = try await RecordingLibrary.shared.project(named: project)
+            outputArgument = try chosen.outputPath(argument: output, config: config).path
+            print("Project: \(chosen.name)")
+        }
         if micOnly && with != nil { Self.warn("--with is ignored in --mic-only mode") }
         if let selection = config.inputDevice {
             let chosen = try AudioInputDevice.resolve(selection, in: AudioCapture.listDevices())
@@ -116,7 +124,7 @@ struct Record: AsyncParsableCommand {
         print("Speech model: \(config.modelName)")
         print("Speaker identification: \(config.disableDiarization ? "off" : config.diarizationEngine.rawValue)")
         if config.enableCorrection { print("AI cleanup enabled: transcript text will be sent to Claude.") }
-        let transcriber = try await Transcriber(config: config, outputArg: output)
+        let transcriber = try await Transcriber(config: config, outputArg: outputArgument)
         let interrupts = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global())
         let termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
         let previousINT = signal(SIGINT, SIG_IGN)

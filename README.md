@@ -130,6 +130,27 @@ The main window lists one entry per recording, including recordings saved by the
 - **CLI preferences:** `~/.config/livekeet/config.toml`.
 - **Downloaded models:** Hugging Face cache under `~/.cache/huggingface/hub` by default; the optional Python environment is under `~/.local/share/livekeet/python`.
 
+## Projects
+
+A project is a named group of recordings in one folder. Create one with the folder-plus button beside **Projects** in the sidebar. The suggested folder is `<default recordings folder>/<project name>`; **Choose folder…** can use an existing folder anywhere. Existing Livekeet Markdown transcripts directly inside that folder join the project automatically. Subfolders are separate.
+
+Select a project to see its recordings and start a new recording there. The recording form also has a **Project** picker. Every recording in a project saves to its shared folder; choosing **No project** restores the usual default or per-recording folder controls. **All recordings** includes every recording across all projects and other folders.
+
+Right-click a saved recording and use **Move to project** to move its Markdown and associated audio together. Names get numeric suffixes when needed, and the library keeps the same recording entry. Finish active recordings before moving them. Project names can be changed from their context menu; removing a project removes its grouping while retaining the folder and all recordings.
+
+The app and CLI share projects in the local library index. The existing recordings library upgrades automatically. Folder bookmarks follow project folders moved or renamed on the same disk when macOS can resolve them; a disconnected folder stays listed and cannot be used for new recordings until available again.
+
+```sh
+livekeet projects create Research                         # ~/recordings/Research by default
+livekeet projects create Meetings --folder ~/meetings     # group existing recordings
+livekeet projects list
+livekeet --project Research                               # timestamped Markdown in its folder
+livekeet Weekly.md --project Research                     # named recording in its folder
+livekeet projects rename Research Studies                # keeps the same folder
+```
+
+Project names are unique (ignoring case), and a folder can belong to one project. The CLI accepts a project name or its ID from `projects list`. With `--project`, output paths outside the project's folder are rejected.
+
 ## Speech models
 
 Parakeet TDT 0.6B v3 is the default for new app preferences and CLI configurations. Existing explicit model selections are preserved.

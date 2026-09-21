@@ -7,18 +7,63 @@ import UniformTypeIdentifiers
 @MainActor
 final class RecordingHistoryModel {
     var recordings: [Recording] = []
+    var projects: [RecordingProject] = []
+    var movingRecordingID: UUID?
     var errorMessage: String?
     private let library = RecordingLibrary.shared
 
     func refresh(discovering folder: String? = nil) async {
         do {
+            projects = try await library.projects()
+            var folders = projects.filter(\.isAvailable).map(\.folderURL)
             if let folder {
                 let url = URL(fileURLWithPath: NSString(string: folder).expandingTildeInPath)
-                if FileManager.default.fileExists(atPath: url.path) { try await library.discover(in: url) }
+                if FileManager.default.fileExists(atPath: url.path) { folders.append(url) }
+            }
+            var errors: [String] = []
+            for url in Set(folders) {
+                do { try await library.discover(in: url) }
+                catch { errors.append("\(url.lastPathComponent): \(error.localizedDescription)") }
             }
             recordings = try await library.recordings()
-            errorMessage = nil
+            errorMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
         } catch { errorMessage = "Could not read recording history: \(error.localizedDescription)" }
+    }
+
+    func recordings(in projectID: UUID?) -> [Recording] {
+        guard let projectID else { return recordings }
+        guard let project = projects.first(where: { $0.id == projectID }) else { return [] }
+        return recordings.filter(project.contains)
+    }
+
+    func saveProject(_ project: RecordingProject?, name: String, folder: URL) async throws -> UUID {
+        let id: UUID
+        if let project {
+            try await library.renameProject(id: project.id, name: name)
+            id = project.id
+        } else {
+            id = try await library.createProject(name: name, folder: folder).id
+        }
+        await refresh()
+        return id
+    }
+
+    func removeProject(_ project: RecordingProject) async -> Bool {
+        do {
+            try await library.removeProject(id: project.id)
+            await refresh()
+            return true
+        } catch { errorMessage = error.localizedDescription; return false }
+    }
+
+    func move(_ recording: Recording, to project: RecordingProject) async {
+        guard movingRecordingID == nil else { return }
+        movingRecordingID = recording.id
+        defer { movingRecordingID = nil }
+        do {
+            try await library.moveRecording(id: recording.id, toProject: project.id)
+            await refresh()
+        } catch { errorMessage = error.localizedDescription }
     }
 
     func importTranscripts() async -> UUID? {
