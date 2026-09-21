@@ -113,6 +113,8 @@ executable = "python3"
 
 Filename placeholders: `{date}`, `{time}`, `{datetime}`, `{names}`. Names join with dashes and path separators are sanitized. Existing files receive numeric suffixes. Deterministic word corrections apply even when Claude cleanup is disabled.
 
+Audio-source controls, speaker identification, and the AI correction switch live in **Settings → General → Recording defaults**. Engine and correction details remain in Advanced.
+
 Enter other speakers' names in the main recording window. They apply only to that recording and clear after it is saved; your own name remains a persistent preference in General settings.
 
 The Mac app keeps its own persistent preferences. **Settings → General → Import settings from CLI config** copies CLI preferences into the app. Microphone selection and all three speaker engines are available in Settings. The app reads the TOML replacement dictionary and pyannote token at the start of each recording. Use an absolute Python path for launching from Finder.

@@ -51,6 +51,17 @@ struct SettingsView: View {
 
     private func generalTab(settings: Bindable<AppSettings>) -> some View {
         Form {
+            Section("Recording defaults") {
+                Toggle("Microphone only", isOn: settings.micOnly)
+                Toggle("System audio only", isOn: settings.systemOnly)
+                Toggle("Identify individual speakers", isOn: Binding(
+                    get: { !self.settings.disableDiarization },
+                    set: { self.settings.disableDiarization = !$0 }
+                ))
+                Toggle("AI transcript correction", isOn: settings.enableCorrection)
+                Text("AI correction sends transcript text to Claude. Changes apply to new recordings.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Microphone") {
                 Picker("Input", selection: settings.inputDevice) {
                     Text("System default").tag("")
@@ -222,10 +233,6 @@ struct SettingsView: View {
     private func advancedTab(settings: Bindable<AppSettings>) -> some View {
         Form {
             Section("Speaker Identification") {
-                Toggle("Identify individual speakers", isOn: Binding(
-                    get: { !self.settings.disableDiarization },
-                    set: { self.settings.disableDiarization = !$0 }
-                ))
                 Picker("Engine", selection: settings.diarizationEngine) {
                     Text("Sortformer (native)").tag("sortformer")
                     Text("WeSpeaker (Python)").tag("wespeaker")
@@ -253,11 +260,6 @@ struct SettingsView: View {
             }
 
             Section("AI Correction") {
-                Toggle("Enable correction (uses Claude Haiku)", isOn: settings.enableCorrection)
-                Text("Sends recent transcript segments to the Anthropic API via the claude-runner sidecar.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
                 TextField("Timeout (seconds)", value: settings.correctionTimeout, format: .number)
                     .disabled(!self.settings.enableCorrection)
                 TextField("Model", text: settings.correctionModel)

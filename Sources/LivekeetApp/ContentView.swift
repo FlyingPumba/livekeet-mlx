@@ -57,7 +57,6 @@ struct ContentView: View {
 
     @ViewBuilder
     private var recordingPane: some View {
-        @Bindable var settings = settings
         @Bindable var viewModel = viewModel
 
         VStack(spacing: 0) {
@@ -115,46 +114,7 @@ struct ContentView: View {
                         .buttonStyle(.plain)
                     recordButton
                 }
-                HStack(spacing: 16) {
-                    Toggle(isOn: $settings.micOnly) {
-                        Label("Mic only", systemImage: "mic.fill")
-                            .font(.caption)
-                    }
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .disabled(viewModel.isRecording)
-                    .fixedSize()
 
-                    Toggle(isOn: $settings.systemOnly) {
-                        Label("System only", systemImage: "speaker.wave.2.fill")
-                            .font(.caption)
-                    }
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .disabled(viewModel.isRecording)
-                    .fixedSize()
-
-                    Toggle(isOn: $settings.disableDiarization) {
-                        Label("No speakers", systemImage: "person.slash")
-                            .font(.caption)
-                    }
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .disabled(viewModel.isRecording)
-                    .fixedSize()
-
-                    Toggle(isOn: $settings.enableCorrection) {
-                        Label("AI fix", systemImage: "wand.and.stars")
-                            .font(.caption)
-                    }
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .disabled(viewModel.isRecording)
-                    .fixedSize()
-
-                    Spacer()
-
-                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
