@@ -12,10 +12,10 @@ public struct LivekeetConfig: Sendable {
     public var filenamePattern: String
     public var speakerName: String
     public var defaultModel: String
+    public var speechLanguage: String?
     public var otherNames: [String]
     public var micOnly: Bool
     public var systemOnly: Bool
-    public var multilingual: Bool
     public var showStatus: Bool
     public var dumpAudio: Bool
     public var disableDiarization: Bool
@@ -35,10 +35,10 @@ public struct LivekeetConfig: Sendable {
         filenamePattern: String = "{datetime}.md",
         speakerName: String = "Me",
         defaultModel: String = "mlx-community/parakeet-tdt-0.6b-v2",
+        speechLanguage: String? = nil,
         otherNames: [String] = [],
         micOnly: Bool = false,
         systemOnly: Bool = false,
-        multilingual: Bool = false,
         showStatus: Bool = false,
         dumpAudio: Bool = false,
         disableDiarization: Bool = false,
@@ -57,10 +57,10 @@ public struct LivekeetConfig: Sendable {
         self.filenamePattern = filenamePattern
         self.speakerName = speakerName
         self.defaultModel = defaultModel
+        self.speechLanguage = speechLanguage
         self.otherNames = otherNames
         self.micOnly = micOnly
         self.systemOnly = systemOnly
-        self.multilingual = multilingual
         self.showStatus = showStatus
         self.dumpAudio = dumpAudio
         self.disableDiarization = disableDiarization
@@ -78,12 +78,9 @@ public struct LivekeetConfig: Sendable {
 
     // MARK: - Computed Properties
 
-    /// The resolved model name, accounting for the multilingual flag.
+    /// The selected model, with legacy checkpoint IDs normalized.
     public var modelName: String {
-        if multilingual {
-            return "mlx-community/parakeet-tdt-0.6b-v3"
-        }
-        return defaultModel
+        return ModelCatalog.canonicalID(for: defaultModel)
     }
 
     /// The primary other speaker name (first in the list, or "Other").
@@ -118,6 +115,7 @@ public struct LivekeetConfig: Sendable {
         }
         if let defaults = toml["defaults"]?.table {
             config.defaultModel = defaults["model"]?.string ?? config.defaultModel
+            config.speechLanguage = defaults["language"]?.string
             config.disableDiarization = !(defaults["diarize"]?.bool ?? false)
             config.inputDevice = defaults["device"]?.string
             if let engine = defaults["engine"]?.string {
@@ -191,9 +189,10 @@ public struct LivekeetConfig: Sendable {
           output.filename  Pattern: {date}, {time}, {datetime}, {names}
           defaults.model   Speech recognition model
 
+        Run livekeet models to compare all supported models.
         Models (downloaded on first use):
-          parakeet-tdt-0.6b-v2  English, highest accuracy (default)
-          parakeet-tdt-0.6b-v3  Multilingual, 25 languages (--multilingual)
+          parakeet-tdt-0.6b-v2  English (default)
+          parakeet-tdt-0.6b-v3  Multilingual, 25 languages
         """)
     }
 
@@ -213,9 +212,11 @@ public struct LivekeetConfig: Sendable {
 
     [defaults]
     # Available models (downloaded automatically on first use):
-    #   mlx-community/parakeet-tdt-0.6b-v2 - English, highest accuracy (default)
+    #   mlx-community/parakeet-tdt-0.6b-v2 - English (default)
     #   mlx-community/parakeet-tdt-0.6b-v3  - Multilingual, 25 languages
     model = "mlx-community/parakeet-tdt-0.6b-v2"
+    # Required for Cohere and Canary; ISO code, e.g. es or en.
+    # language = "es"
     diarize = false
     engine = "sortformer" # sortformer (native), wespeaker, or pyannote
     # device = "MacBook Pro Microphone" # name, UID, or --devices index

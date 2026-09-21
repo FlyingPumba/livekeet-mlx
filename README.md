@@ -2,7 +2,7 @@
 
 Live transcription for Apple Silicon, with a native Mac app and a command-line interface. Both capture microphone and system audio, write timestamped Markdown, and share the same transcription pipeline.
 
-Speech recognition runs locally using MLX. Optional Claude cleanup sends transcript text to Claude; it is off by default. Speaker analysis runs locally with native Sortformer or optional Python WeSpeaker/pyannote engines.
+Speech recognition runs locally using MLX or an optional Python speech helper. Optional Claude cleanup sends transcript text to Claude; it is off by default. Speaker analysis runs locally with native Sortformer or optional Python WeSpeaker/pyannote engines.
 
 ## Build and run
 
@@ -47,7 +47,7 @@ livekeet meeting.md --with "Alice,Bob" # names enable speaker identification
 livekeet meetings/ --status            # output directory, including a new one
 livekeet -m -d "USB"                    # microphone only, selected device
 livekeet --system-only                 # system audio only
-livekeet --multilingual                # Parakeet v3
+livekeet --model mlx-community/parakeet-tdt-0.6b-v3 # Parakeet v3
 livekeet --model mlx-community/parakeet-tdt-0.6b-v2
 livekeet --diarize --engine sortformer
 livekeet --engine wespeaker
@@ -68,7 +68,7 @@ livekeet update                        # fetch, fast-forward, rebuild, reinstall
 
 All recording flags can also follow `livekeet record`. `-w` aliases `--with`, `-m` aliases `--mic-only`, and `-d` aliases `--device`. Device selection accepts the index printed by `devices`, an exact or unambiguous partial name, or a persistent UID. Indices can change after devices reconnect. Unlike the Python CLI, a selected microphone works alongside system capture too.
 
-`--multilingual` overrides `--model`. Multiple `--with` names, `--diarize`, or an explicit `--engine` enable speaker identification; `--no-diarize` wins over all of them. `--no-cleanup` wins over `--cleanup` and the config. Microphone-only mode ignores remote speaker names. `--mic-only` and `--system-only` are mutually exclusive.
+The model selected with `--model` is the model used; otherwise `[defaults].model` applies. Multiple `--with` names, `--diarize`, or an explicit `--engine` enable speaker identification; `--no-diarize` wins over all of them. `--no-cleanup` wins over `--cleanup` and the config. Microphone-only mode ignores remote speaker names. `--mic-only` and `--system-only` are mutually exclusive.
 
 Ctrl+C finishes queued transcription, speaker analysis, and remaining cleanup before saving. In an interactive terminal, recordings with system audio offer speaker renaming afterward. `--no-relabel` disables the prompt; redirected input never prompts. Relabeling supports collision-safe swaps, touches only speaker labels, and writes atomically. EOF or Ctrl+C during the prompt leaves the original intact.
 
@@ -90,6 +90,7 @@ name = "Me"
 model = "mlx-community/parakeet-tdt-0.6b-v2"
 diarize = false
 engine = "sortformer"
+# language = "es" # required for Cohere and Canary
 # device = "USB" # microphone name, UID, or index
 
 [cleanup]
@@ -115,12 +116,37 @@ Enter other speakers' names in the main recording window. They apply only to tha
 
 The Mac app keeps its own persistent preferences. **Settings → General → Import settings from CLI config** copies CLI preferences into the app. Microphone selection and all three speaker engines are available in Settings. The app reads the TOML replacement dictionary and pyannote token at the start of each recording. Use an absolute Python path for launching from Finder.
 
+## Speech models
+
+**Settings → Models** selects the actual transcription model and shows its release date, strengths, tradeoffs, published WER, and source. There is no separate multilingual switch. The CLI uses `--model` or `[defaults].model`; `livekeet models` prints the same catalog.
+
+| Choice | Local runtime | Language selection |
+| --- | --- | --- |
+| Parakeet TDT 0.6B v2 | Native MLX | English only |
+| Parakeet TDT 0.6B v3 | Native MLX | Automatic, 25 languages |
+| Qwen3-ASR 0.6B 4-bit; 1.7B 4-bit or 8-bit | Native MLX | Automatic, 30 languages |
+| Voxtral Mini 4B Realtime 4-bit | Native MLX | Automatic, 13 languages |
+| Cohere Transcribe 2B FP16 | Native MLX | Required, 14 languages |
+| Granite Speech 4.0 1B 5-bit | Native MLX | Automatic, 6 input languages |
+| Canary 1B v2 8-bit | Native MLX | Required, 25 languages |
+| Moonshine Streaming Small Spanish | Python / CPU | Spanish only |
+| Whisper large-v3 and large-v3 Turbo | Native MLX | Automatic |
+| Voxtral Mini 3B (2025) | Python / Metal when available | Automatic |
+
+Apple SpeechAnalyzer is shown as unavailable with an explanation: it requires macOS 26, and this build does not include its integration.
+
+Cohere and Canary need **Transcription language** in Settings, or `--language es` / `[defaults].language = "es"` in the CLI. Language hints are only passed to those models; Granite's separate translation mode is not enabled. Speaker identification is independent of the speech model.
+
+For Moonshine and the original Voxtral, click **Set up local speech support** in Models, or run `scripts/setup-python.sh speech` and choose the printed Python path in Advanced settings. Model weights download on first use. Unsupported custom architectures produce a startup error rather than falling back to another model.
+
+WER is lower-is-better word error rate. Catalog figures describe the publishers' original models and named datasets, not benchmarks of these quantized builds or this Mac. Different languages and evaluation sets are not directly comparable. Livekeet transcribes completed speech segments, so a model's published streaming delay is not the app's latency.
+
 ## Optional Python engines and cleanup
 
 The native Sortformer path needs no Python. Install only the helpers you want with [uv](https://docs.astral.sh/uv/):
 
 ```sh
-scripts/setup-python.sh wespeaker  # or pyannote, cleanup, all
+scripts/setup-python.sh wespeaker  # or pyannote, speech, cleanup, all
 ```
 
 The script creates `~/.local/share/livekeet/python` and prints the executable path to use in `[python] executable` and the app's Advanced settings. Set `LIVEKEET_PYTHON_ENV` to choose another environment.
@@ -130,7 +156,7 @@ The script creates `~/.local/share/livekeet/python` and prints the executable pa
 - **pyannote:** periodically analyzes captured audio, with a final pass at stop. Requires a Hugging Face token and acceptance of the `pyannote/speaker-diarization-3.1` and `pyannote/segmentation-3.0` model terms. Audio stays local.
 - **Claude cleanup:** uses `claude-runner` and existing Claude Code authentication. Corrections run in the background in batches, with remaining batches drained on stop. This preserves the Swift app's correction workflow rather than blocking each utterance as the Python CLI does. Cleanup failure preserves the original transcript.
 
-Model weights download on first use. Missing Python dependencies or credentials produce a startup error before recording. A helper failure during a recording is reported while transcription continues.
+Model weights download on first use. Missing Python dependencies or credentials produce a startup error before recording. A speaker-helper failure during a recording is reported while transcription continues. A speech-helper failure stops capture and saves the text already transcribed.
 
 ## Compatibility notes
 

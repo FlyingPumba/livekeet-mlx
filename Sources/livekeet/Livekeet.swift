@@ -43,10 +43,10 @@ struct Record: AsyncParsableCommand {
     var systemOnly = false
     @Option(name: [.short, .long], help: "Microphone index, name, or UID from --devices.")
     var device: String?
-    @Flag(help: "Use multilingual Parakeet v3; overrides --model.")
-    var multilingual = false
     @Option(help: "Hugging Face speech model ID; see livekeet models.")
     var model: String?
+    @Option(help: "Transcription language for Cohere/Canary (ISO code, e.g. es or en).")
+    var language: String?
     @Flag(help: "Identify individual speakers on each channel.")
     var diarize = false
     @Flag(help: "Disable speaker identification, overriding config and automatic enabling.")
@@ -80,10 +80,10 @@ struct Record: AsyncParsableCommand {
         var config = base
         config.micOnly = micOnly
         config.systemOnly = systemOnly
-        config.multilingual = multilingual
         config.showStatus = status
         config.dumpAudio = dumpAudio
         if let model { config.defaultModel = model }
+        if let language { config.speechLanguage = language }
         if let device { config.inputDevice = device }
         if let with {
             config.otherNames = with.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
@@ -105,7 +105,6 @@ struct Record: AsyncParsableCommand {
         Log.consoleEnabled = true
         defer { Log.consoleEnabled = false }
         let config = resolvedConfig(try LivekeetConfig.load())
-        if multilingual && model != nil { Self.warn("--multilingual overrides --model") }
         if micOnly && with != nil { Self.warn("--with is ignored in --mic-only mode") }
         if let selection = config.inputDevice {
             let chosen = try AudioInputDevice.resolve(selection, in: AudioCapture.listDevices())
@@ -185,6 +184,8 @@ struct Models: ParsableCommand {
     func run() {
         for model in ModelCatalog.availableModels {
             print("\(model.id)\n  \(model.displayName) — \(model.subtitle)")
+            print("  Released: \(model.release). \(model.strengths)")
+            print("  \(model.benchmark)\n  \(model.tradeoffs)\n  Source: \(model.source.absoluteString)\n")
         }
     }
 }

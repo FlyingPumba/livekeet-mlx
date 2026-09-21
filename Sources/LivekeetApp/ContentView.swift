@@ -49,15 +49,6 @@ struct ContentView: View {
                     .disabled(viewModel.isRecording)
                     .fixedSize()
 
-                    Toggle(isOn: $settings.multilingual) {
-                        Label("Multi", systemImage: "globe")
-                            .font(.caption)
-                    }
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .disabled(viewModel.isRecording)
-                    .fixedSize()
-
                     Toggle(isOn: $settings.disableDiarization) {
                         Label("No speakers", systemImage: "person.slash")
                             .font(.caption)

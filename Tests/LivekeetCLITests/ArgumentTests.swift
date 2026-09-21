@@ -27,12 +27,18 @@ final class ArgumentTests: XCTestCase {
     }
 
     func testAutomaticDiarizationAndConfigPreservation() throws {
-        let command = try record(["--with", " Alice, ,Bob ", "--multilingual"])
+        let command = try record(["--with", " Alice, ,Bob "])
         let config = command.resolvedConfig(LivekeetConfig(defaultModel: "custom", disableDiarization: true, enableCorrection: true))
         XCTAssertEqual(config.otherNames, ["Alice", "Bob"])
         XCTAssertFalse(config.disableDiarization)
         XCTAssertTrue(config.enableCorrection)
-        XCTAssertEqual(config.modelName, ModelCatalog.parakeetV3.id)
+        XCTAssertEqual(config.modelName, "custom")
+    }
+
+    func testSelectedModelIsUsedWithoutAnOverride() throws {
+        let command = try record(["--model", ModelCatalog.qwen3ASR.id])
+        XCTAssertEqual(command.resolvedConfig(LivekeetConfig(defaultModel: ModelCatalog.parakeetV3.id)).modelName, ModelCatalog.qwen3ASR.id)
+        XCTAssertThrowsError(try record(["--multilingual"]))
     }
 
     func testAllEngineChoicesEnableDiarization() throws {

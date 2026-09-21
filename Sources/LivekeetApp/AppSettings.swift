@@ -48,18 +48,6 @@ final class AppSettings {
         }
     }
 
-    var multilingual: Bool {
-        get {
-            access(keyPath: \.multilingual)
-            return Self.defaults.bool(forKey: "multilingual")
-        }
-        set {
-            withMutation(keyPath: \.multilingual) {
-                Self.defaults.set(newValue, forKey: "multilingual")
-            }
-        }
-    }
-
     var outputDirectory: String {
         get {
             access(keyPath: \.outputDirectory)
@@ -87,7 +75,7 @@ final class AppSettings {
     var defaultModel: String {
         get {
             access(keyPath: \.defaultModel)
-            return Self.defaults.string(forKey: "defaultModel") ?? "mlx-community/parakeet-tdt-0.6b-v2"
+            return ModelCatalog.canonicalID(for: Self.defaults.string(forKey: "defaultModel") ?? ModelCatalog.parakeetV2.id)
         }
         set {
             withMutation(keyPath: \.defaultModel) {
@@ -228,12 +216,27 @@ final class AppSettings {
         }
     }
 
+    var speechLanguage: String {
+        get {
+            access(keyPath: \.speechLanguage)
+            return Self.defaults.string(forKey: "speechLanguage") ?? ""
+        }
+        set {
+            withMutation(keyPath: \.speechLanguage) { Self.defaults.set(newValue, forKey: "speechLanguage") }
+        }
+    }
+
+    func selectModel(_ id: String) {
+        defaultModel = ModelCatalog.canonicalID(for: id)
+    }
+
     func importCLISettings() throws {
         let config = try LivekeetConfig.load()
         speakerName = config.speakerName
         outputDirectory = config.outputDirectory
         filenamePattern = config.filenamePattern
-        defaultModel = config.defaultModel
+        selectModel(config.defaultModel)
+        speechLanguage = config.speechLanguage ?? ""
         inputDevice = config.inputDevice ?? ""
         disableDiarization = config.disableDiarization
         diarizationEngine = config.diarizationEngine.rawValue
@@ -261,10 +264,10 @@ final class AppSettings {
             filenamePattern: filenamePattern,
             speakerName: speakerName.isEmpty ? "Me" : speakerName,
             defaultModel: defaultModel,
+            speechLanguage: speechLanguage.isEmpty ? nil : speechLanguage,
             otherNames: otherNames,
             micOnly: micOnly,
             systemOnly: systemOnly,
-            multilingual: multilingual,
             showStatus: debugMode,
             dumpAudio: dumpAudio,
             disableDiarization: disableDiarization,

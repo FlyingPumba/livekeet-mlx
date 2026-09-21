@@ -13,6 +13,8 @@ struct SettingsView: View {
     @State private var microphones = AudioCapture.listDevices()
     @State private var importError: String?
     @State private var customModelSelected = false
+    @State private var installingSpeechSupport = false
+    @State private var speechSetupMessage: String?
 
     var body: some View {
         @Bindable var settings = settings
@@ -22,6 +24,9 @@ struct SettingsView: View {
                 .tabItem {
                     Label("General", systemImage: "gear")
                 }
+
+            modelsTab(settings: $settings)
+                .tabItem { Label("Models", systemImage: "waveform") }
 
             advancedTab(settings: $settings)
                 .tabItem {
@@ -85,9 +90,6 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Model") {
-                modelPicker(settings: settings)
-            }
             Section("CLI Settings") {
                 Button("Import settings from CLI config") {
                     do { try self.settings.importCLISettings() }
@@ -100,39 +102,108 @@ struct SettingsView: View {
         .formStyle(.grouped)
     }
 
+    private func modelsTab(settings: Bindable<AppSettings>) -> some View {
+        Form {
+            Section("Speech recognition") { modelPicker(settings: settings) }
+            Section("Apple SpeechAnalyzer · unavailable") {
+                Text("Introduced June 2025 · macOS 26 and later")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("Apple’s on-device model is designed for live captions, long recordings and speech captured at a distance. macOS manages its language downloads and model updates.")
+                    .font(.callout)
+                Text("Unavailable in this build. Requires macOS 26; this Mac runs \(ProcessInfo.processInfo.operatingSystemVersionString). Apple does not publish a comparable WER in its introduction.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Link("Apple’s model introduction ↗", destination: URL(string: "https://developer.apple.com/videos/play/wwdc2025/277/")!)
+                    .font(.caption)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
     private func modelPicker(settings: Bindable<AppSettings>) -> some View {
         let matched = ModelCatalog.descriptor(for: self.settings.defaultModel)
         let selection: ModelSelection = customModelSelected ? .custom : matched.map { .preset($0.id) } ?? .custom
 
         return VStack(alignment: .leading, spacing: 6) {
-            Picker("Default model", selection: Binding<ModelSelection>(
+            Picker("Transcription model", selection: Binding<ModelSelection>(
                 get: { selection },
                 set: { newValue in
                     customModelSelected = newValue == .custom
                     if case .preset(let id) = newValue {
-                        self.settings.defaultModel = id
+                        self.settings.selectModel(id)
                     }
                 }
             )) {
                 ForEach(ModelCatalog.availableModels) { model in
                     Text(model.displayName).tag(ModelSelection.preset(model.id))
                 }
+                Text("Apple SpeechAnalyzer — unavailable (macOS 26+)")
+                    .tag(ModelSelection.preset("apple/speech-analyzer"))
+                    .disabled(true)
                 Text("Custom…").tag(ModelSelection.custom)
             }
 
             if let matched, !customModelSelected {
-                Text("\(matched.subtitle) · \(matched.sizeDescription)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(matched.subtitle).font(.subheadline.weight(.medium))
+                    Text("Released \(matched.release) · \(matched.sizeDescription)")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text(matched.strengths).font(.callout)
+                    Text(matched.tradeoffs).font(.caption).foregroundStyle(.secondary)
+                    Divider()
+                    Text(matched.benchmark).font(.callout)
+                    DisclosureGroup("What does WER mean?") {
+                        Text(ModelCatalog.benchmarkExplanation)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Link("Model details and published results ↗", destination: matched.source)
+                        .font(.caption)
+                    if matched.requiresLanguage {
+                        Picker("Transcription language", selection: settings.speechLanguage) {
+                            Text("Choose a language…").tag("")
+                            ForEach(matched.languages) { language in
+                                Text(language.name).tag(language.id)
+                            }
+                        }
+                        Text("Required for this model. Speech is transcribed in the chosen language.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if matched.backend.needsPython {
+                        Divider()
+                        Text("Optional local speech support is required for this model.")
+                            .font(.caption)
+                        Button(installingSpeechSupport ? "Installing local support…" : "Set up local speech support") {
+                            installingSpeechSupport = true
+                            speechSetupMessage = nil
+                            Task {
+                                do {
+                                    self.settings.pythonExecutable = try await SpeechHelperSetup.install()
+                                    speechSetupMessage = "Local speech support is ready. Model weights download on first recording."
+                                } catch { speechSetupMessage = error.localizedDescription }
+                                installingSpeechSupport = false
+                            }
+                        }
+                        .disabled(installingSpeechSupport)
+                        if let speechSetupMessage {
+                            Text(speechSetupMessage).font(.caption).textSelection(.enabled)
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+                .fixedSize(horizontal: false, vertical: true)
             } else {
                 Text("Custom model id")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                TextField("Hugging Face model id", text: settings.defaultModel)
-                    .textFieldStyle(.roundedBorder)
+                TextField("Hugging Face model id", text: Binding(
+                    get: { self.settings.defaultModel },
+                    set: { self.settings.selectModel($0) }
+                ))
+                .textFieldStyle(.roundedBorder)
+                Text("Use a checkpoint compatible with one of the listed architectures.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
-            Text("Models are downloaded automatically on first use.")
+            Text("Recognition runs on your Mac. Model weights download on first use. Published scores were checked in September 2026.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -159,7 +230,7 @@ struct SettingsView: View {
             Section("Python Helper") {
                 TextField("Python executable", text: settings.pythonExecutable)
                     .textFieldStyle(.roundedBorder)
-                Text("Choose the Python environment with the optional speaker engines or Claude cleanup installed. An absolute path works when launching from Finder.")
+                Text("Choose the Python environment with the optional speech models, speaker engines or Claude cleanup installed. An absolute path works when launching from Finder.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Audio") {

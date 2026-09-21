@@ -128,7 +128,8 @@ public actor Transcriber {
     private let capture: AudioCapture
     private var micDetector: SpeechDetector?
     private var sysDetector: SpeechDetector?
-    private nonisolated(unsafe) let sttModel: any STTGenerationModel
+    private nonisolated(unsafe) let sttModel: (any STTGenerationModel)?
+    private let pythonSpeech: PythonSpeechRecognizer?
     private var lazyDiarTask: Task<Void, Never>?
     private let writer: MarkdownWriter
     private let outputPath: URL
@@ -212,6 +213,8 @@ public actor Transcriber {
         self.capture = AudioCapture(micOnly: config.micOnly, systemOnly: config.systemOnly, inputDevice: config.inputDevice)
 
         let modelName = config.modelName
+        try ModelCatalog.validateLanguage(config.speechLanguage, modelID: modelName)
+        let backend = try ModelCatalog.backend(for: modelName)
         let shortName = modelName.split(separator: "/").last.map(String.init) ?? modelName
         let diarEnabled = !config.disableDiarization && config.diarizationEngine == .sortformer
         if !config.disableDiarization && config.diarizationEngine != .sortformer {
@@ -224,18 +227,27 @@ public actor Transcriber {
 
         // STT: hot-start from prewarm cache if available. If the cache is empty but a prewarm
         // is in flight for THIS model, wait for it instead of kicking off a redundant fresh load.
-        var sttFromCache = await ModelPrewarmer.shared.takeSTT(name: modelName)
-        if sttFromCache == nil {
+        var sttFromCache = backend.needsPython ? nil : await ModelPrewarmer.shared.takeSTT(name: modelName)
+        if sttFromCache == nil && !backend.needsPython {
             await ModelPrewarmer.shared.awaitPrewarmSTT(name: modelName)
             sttFromCache = await ModelPrewarmer.shared.takeSTT(name: modelName)
         }
-        let sttModel: any STTGenerationModel
+        let sttModel: (any STTGenerationModel)?
         let sttElapsed: TimeInterval
-        if let sttFromCache {
+        if backend.needsPython {
+            let helper = try PythonSpeechRecognizer(modelID: modelName, python: config.pythonExecutable)
+            do { try await helper.prepare() }
+            catch { await helper.stop(); throw error }
+            self.pythonSpeech = helper
+            sttModel = nil
+            sttElapsed = Date().timeIntervalSince(loadStart)
+        } else if let sttFromCache {
+            self.pythonSpeech = nil
             sttModel = sttFromCache
             sttElapsed = 0
             Log.info("STT \(shortName): reused from prewarm cache")
         } else {
+            self.pythonSpeech = nil
             Log.info("Loading STT \(shortName)...")
             (sttModel, sttElapsed) = try await Self.loadSTTModel(name: modelName)
         }
@@ -340,6 +352,7 @@ public actor Transcriber {
         catch {
             await capture.stop()
             await pythonDiarizer?.stop()
+            await pythonSpeech?.stop()
             micPCM.cleanup()
             sysPCM.cleanup()
             try? FileManager.default.removeItem(at: pcmTempDir)
@@ -406,6 +419,7 @@ public actor Transcriber {
             await corrector?.cleanup()
         }
         await pythonDiarizer?.stop()
+        await pythonSpeech?.stop()
         await writer.writeFooter()
         await capture.stop()
 
@@ -602,11 +616,25 @@ public actor Transcriber {
             nonisolated(unsafe) let model = sttModel
             let inferenceStart = Date()
 
-            let result = await Task.detached {
-                let audioArray = MLXArray(audio)
-                let output = model.generate(audio: audioArray)
-                return output
-            }.value
+            let result: STTOutput
+            do {
+                if let pythonSpeech {
+                    result = STTOutput(text: try await pythonSpeech.transcribe(samples: audio))
+                } else if let model {
+                    let parameters = SpeechModelLoader.parameters(for: model, modelID: config.modelName, language: config.speechLanguage)
+                    result = await Task.detached {
+                        model.generate(audio: MLXArray(audio), generationParameters: parameters)
+                    }.value
+                } else {
+                    throw ModelCatalog.ModelError.unsupported(config.modelName)
+                }
+            } catch {
+                let message = "Transcription stopped: \(error.localizedDescription) Earlier text will be saved."
+                Log.error(message)
+                eventContinuation.yield(.warning(message))
+                stop()
+                break
+            }
 
             let inferenceTime = Date().timeIntervalSince(inferenceStart)
             let ratio = audioDuration / inferenceTime
@@ -992,15 +1020,7 @@ public actor Transcriber {
 
     static func loadSTTModel(name: String) async throws -> (any STTGenerationModel, TimeInterval) {
         let start = Date()
-        let lowered = name.lowercased()
-        let model: any STTGenerationModel
-        if lowered.contains("qwen") && lowered.contains("asr") {
-            model = try await Qwen3ASRModel.fromPretrained(name)
-        } else if lowered.contains("voxtral") {
-            model = try await VoxtralRealtimeModel.fromPretrained(name)
-        } else {
-            model = try await ParakeetModel.fromPretrained(name)
-        }
+        let model = try await SpeechModelLoader.load(name: name)
         return (model, Date().timeIntervalSince(start))
     }
 

@@ -34,6 +34,7 @@ public actor ModelPrewarmer {
     }
 
     private static func tryLoadSTT(name: String) async -> (any STTGenerationModel, TimeInterval)? {
+        if (try? ModelCatalog.backend(for: name).needsPython) == true { return nil }
         do { return try await Transcriber.loadSTTModel(name: name) }
         catch {
             Log.warning("Prewarm STT failed: \(error)")
