@@ -27,6 +27,11 @@ if [[ "$ENGINE" == all || "$ENGINE" == pyannote ]]; then PACKAGES+=("numpy<2.5" 
 if [[ "$ENGINE" == all || "$ENGINE" == cleanup ]]; then PACKAGES+=('claude-runner>=0.1.1'); fi
 if [[ "$ENGINE" == all || "$ENGINE" == speech ]]; then PACKAGES+=('torch>=2.5' 'transformers>=5.8,<6' 'numpy<2.5' 'soundfile' 'librosa' 'sentencepiece' 'protobuf' 'mistral-common[audio]>=1.8.1'); fi
 uv pip install --python "$VENV/bin/python" "${PACKAGES[@]}"
+if [[ "$ENGINE" == all ]]; then
+  for speaker_engine in wespeaker pyannote community-1 diarizen suplime suplime-large; do
+    /usr/bin/python3 "$(dirname "$0")/../Sources/LivekeetCore/Resources/Python/setup_diarization.py" "$speaker_engine"
+  done
+fi
 if [[ "$ENGINE" == speech ]]; then
   printf '\nSet [python] speech_executable = "%s/bin/python" in your CLI config,\nor select that executable in Mac app Settings → Advanced → Speech Python.\n' "$VENV"
 else

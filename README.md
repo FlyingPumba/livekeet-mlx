@@ -97,6 +97,8 @@ Use **Set up local speaker support** under the selected model, or `scripts/setup
 
 pyannote 3.1 and Community-1 require accepting their Hugging Face access conditions and setting `HF_TOKEN` or `[pyannote].token` in the CLI configuration. Audio inference stays local. The native Core ML models cache under `~/Library/Application Support/FluidAudio/Models`; Python and legacy MLX weights normally use the Hugging Face cache. DiariZen, SUPlime/SUPlime-L, and legacy Sortformer v1 have noncommercial model weights; the picker links their terms.
 
+To check real native inference with a supplied mono 16 kHz PCM WAV, run `scripts/smoke-diarization.sh sortformer sample.wav` or `scripts/smoke-diarization.sh ls-eend sample.wav`. These opt-in checks download the model when needed and verify nonempty speaker output, timestamp bounds, channel isolation, and final flushing. They are integration tests, not DER benchmarks.
+
 ## Configuration and Mac app settings
 
 `livekeet init` creates `~/.config/livekeet/config.toml` without overwriting an existing file. Python Livekeet's config keys are supported:
