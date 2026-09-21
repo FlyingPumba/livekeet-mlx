@@ -24,7 +24,7 @@ struct LivekeetApp: App {
         if smokeTest { return }
         let bootstrap = AppSettings()
         let modelName = bootstrap.defaultModel
-        let diarEnabled = !bootstrap.disableDiarization && bootstrap.diarizationEngine == "sortformer"
+        let diarEnabled = !bootstrap.disableDiarization && bootstrap.diarizationEngine == "sortformer-v1"
         Task.detached(priority: .utility) {
             await ModelPrewarmer.shared.startPrewarm(
                 sttModelName: modelName,

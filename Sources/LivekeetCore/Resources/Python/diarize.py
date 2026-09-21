@@ -6,6 +6,8 @@ No audio is sent to a service. Models download from Hugging Face on first use.
 """
 import contextlib
 import json
+import math
+from io import BytesIO
 import os
 import sys
 import wave
@@ -30,16 +32,30 @@ def create_engine(name):
             speaker = int(trackers[request["channel"]].identify(embedding)) if embedding is not None else 0
             return {"speaker": speaker}
         return identify
-    if name != "pyannote":
+    model_ids = {
+        "pyannote": "pyannote/speaker-diarization-3.1",
+        "community-1": "pyannote/speaker-diarization-community-1",
+        "diarizen": "BUT-FIT/diarizen-wavlm-large-s80-md-v2",
+        "suplime": "rewayai/suplime",
+        "suplime-large": "rewayai/suplime-large",
+    }
+    if name not in model_ids:
         raise ValueError("Unknown engine: " + name)
     token = os.environ.get("HF_TOKEN")
-    if not token:
-        raise ValueError("pyannote needs HF_TOKEN or [pyannote] token in config; accept the speaker-diarization-3.1 and segmentation-3.0 model terms on Hugging Face.")
+    if name in ("pyannote", "community-1") and not token:
+        terms = model_ids[name] + (" and pyannote/segmentation-3.0" if name == "pyannote" else "")
+        raise ValueError("Accept " + terms + " model access on Hugging Face and set HF_TOKEN or [pyannote] token in the CLI config.")
     import torch
-    from pyannote.audio import Pipeline
-    pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", token=token)
+    # CPU is portable across the supported Macs. Do not silently switch to CUDA/MPS
+    # or enable unsafe deserialization globally to work around incompatible models.
+    if name == "diarizen":
+        from diarizen.pipelines.inference import DiariZenPipeline
+        pipeline = DiariZenPipeline.from_pretrained(model_ids[name])
+    else:
+        from pyannote.audio import Pipeline
+        pipeline = Pipeline.from_pretrained(model_ids[name], token=token)
     if pipeline is None:
-        raise ValueError("Cannot access pyannote models. Accept the speaker-diarization-3.1 and segmentation-3.0 terms on Hugging Face and check HF_TOKEN.")
+        raise ValueError("Cannot access " + model_ids[name] + ". Check model access conditions and HF_TOKEN.")
 
     def diarize(request):
         channels = {}
@@ -48,16 +64,39 @@ def create_engine(name):
             if len(samples) < 8000:
                 channels[channel] = []
                 continue
-            # Pass an in-memory waveform to avoid a torchcodec/FFmpeg dependency.
-            result = pipeline({"waveform": torch.from_numpy(samples.copy()).unsqueeze(0), "sample_rate": 16000})
-            annotation = getattr(result, "exclusive_speaker_diarization", result)
-            labels, turns = {}, []
-            for turn, _, label in annotation.itertracks(yield_label=True):
-                index = labels.setdefault(label, len(labels))
-                turns.append({"start": turn.start, "end": turn.end, "speaker": index})
-            channels[channel] = turns
+            if name == "diarizen":
+                # The upstream DiariZen wrapper accepts a WAV stream, not a tensor dict.
+                stream = BytesIO()
+                with wave.open(stream, "wb") as audio:
+                    audio.setnchannels(1)
+                    audio.setsampwidth(2)
+                    audio.setframerate(16000)
+                    audio.writeframes((np.clip(samples, -1, 1) * 32767).astype("<i2").tobytes())
+                stream.seek(0)
+                result = pipeline(stream)
+            else:
+                # Tensor input avoids torchcodec/FFmpeg for pyannote and SUPlime.
+                result = pipeline({"waveform": torch.from_numpy(samples.copy()).unsqueeze(0), "sample_rate": 16000})
+            channels[channel] = serialize_turns(result, len(samples) / 16000)
         return {"channels": channels}
     return diarize
+
+
+def serialize_turns(result, duration):
+    """Normalize both legacy Annotation and pyannote 4.x DiarizeOutput."""
+    annotation = getattr(result, "exclusive_speaker_diarization", None)
+    if annotation is None:
+        annotation = getattr(result, "speaker_diarization", result)
+    labels, turns = {}, []
+    for turn, _, label in sorted(annotation.itertracks(yield_label=True), key=lambda item: item[0].start):
+        if not math.isfinite(turn.start) or not math.isfinite(turn.end):
+            raise ValueError("Speaker model returned non-finite timestamps")
+        start, end = max(0, turn.start), min(duration, turn.end)
+        if end <= start:
+            continue
+        index = labels.setdefault(label, len(labels))
+        turns.append({"start": start, "end": end, "speaker": index})
+    return turns
 
 
 def serve(input_stream=sys.stdin, output_stream=sys.stdout, factory=create_engine):
@@ -70,7 +109,7 @@ def serve(input_stream=sys.stdin, output_stream=sys.stdout, factory=create_engin
             engine = factory(sys.argv[1])
         reply({"ok": True})
     except Exception as exc:
-        reply({"error": f"{type(exc).__name__}: {exc}. Install the optional helper with scripts/setup-python.sh."})
+        reply({"error": f"{type(exc).__name__}: {exc}. Install this engine from Settings → Models → Speaker identification, or run scripts/setup-python.sh speakers."})
         return 1
     for line in input_stream:
         try:

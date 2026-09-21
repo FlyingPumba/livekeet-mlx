@@ -20,10 +20,11 @@ actor PythonDiarizer {
         }
         process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [NSString(string: config.pythonExecutable).expandingTildeInPath, "-u", script.path, config.diarizationEngine.rawValue]
+        process.arguments = [NSString(string: DiarizationHelperSetup.executable(for: config.diarizationEngine, fallback: config.pythonExecutable)).expandingTildeInPath, "-u", script.path, config.diarizationEngine.rawValue]
         var env = ProcessInfo.processInfo.environment
         env["PYANNOTE_METRICS_ENABLED"] = "0"
         env["HF_HUB_DISABLE_TELEMETRY"] = "1"
+        env["PYTHONNOUSERSITE"] = "1"
         if let token = config.pyannoteToken, !token.isEmpty { env["HF_TOKEN"] = token }
         process.environment = env
         let stdinPipe = Pipe(), stdoutPipe = Pipe()
@@ -38,7 +39,7 @@ actor PythonDiarizer {
     }
 
     func prepare() throws {
-        guard try receive(timeout: 300).ok == true else { throw HelperError.failed("Invalid speaker-helper startup response.") }
+        guard try receive(timeout: 1800).ok == true else { throw HelperError.failed("Invalid speaker-helper startup response.") }
     }
 
     func identify(samples: [Float], channel: String) throws -> Int {
@@ -58,7 +59,7 @@ actor PythonDiarizer {
         var data = try JSONSerialization.data(withJSONObject: payload)
         data.append(10)
         try input.write(contentsOf: data)
-        return try receive(timeout: 300)
+        return try receive(timeout: 1800)
     }
 
     private func receive(timeout: TimeInterval) throws -> Reply {

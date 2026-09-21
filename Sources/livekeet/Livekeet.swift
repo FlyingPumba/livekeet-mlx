@@ -17,7 +17,7 @@ struct Livekeet: AsyncParsableCommand {
         abstract: "Live microphone and system-audio transcription to Markdown.",
         discussion: "Run livekeet record --help for recording controls. Utility commands never load speech models.",
         version: CLIVersion.current,
-        subcommands: [Record.self, Init.self, Config.self, Devices.self, Models.self, Projects.self, Relabel.self, Update.self],
+        subcommands: [Record.self, Init.self, Config.self, Devices.self, Models.self, Diarizers.self, Projects.self, Relabel.self, Update.self],
         defaultSubcommand: Record.self
     )
 }
@@ -53,7 +53,7 @@ struct Record: AsyncParsableCommand {
     var diarize = false
     @Flag(help: "Disable speaker identification, overriding config and automatic enabling.")
     var noDiarize = false
-    @Option(help: "Speaker engine: sortformer (native), wespeaker, or pyannote (Python helper).")
+    @Option(help: "Speaker engine; see livekeet diarizers. Default: sortformer (Streaming v2.1).")
     var engine: DiarizationEngine?
     @Flag(help: "Enable optional Claude transcript correction.")
     var cleanup = false
@@ -197,6 +197,19 @@ struct Models: ParsableCommand {
             print("\(model.id)\n  \(model.displayName) — \(model.subtitle)")
             print("  Released: \(model.release). \(model.strengths)")
             print("  \(model.benchmark)\n  \(model.tradeoffs)\n  Source: \(model.source.absoluteString)\n")
+        }
+    }
+}
+
+struct Diarizers: ParsableCommand {
+    static let configuration = CommandConfiguration(abstract: "Compare local speaker identification engines and published DER results.")
+    func run() {
+        print(DiarizationCatalog.benchmarkExplanation + "\n")
+        for model in DiarizationCatalog.models {
+            print("\(model.id) — \(model.displayName)\n  \(model.subtitle)")
+            print("  Released: \(model.release). \(model.strengths)")
+            print("  \(model.benchmark)\n  \(model.tradeoffs)\n  \(model.requirements)")
+            print("  Source: \(model.source.absoluteString)\n")
         }
     }
 }

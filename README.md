@@ -49,7 +49,7 @@ livekeet -m -d "USB"                    # microphone only, selected device
 livekeet --system-only                 # system audio only
 livekeet --model mlx-community/parakeet-tdt-0.6b-v3 # Parakeet v3
 livekeet --model mlx-community/parakeet-tdt-0.6b-v2
-livekeet --diarize --engine sortformer
+livekeet --diarize --engine sortformer # Streaming Sortformer v2.1 (default)
 livekeet --engine wespeaker
 livekeet --engine pyannote
 livekeet --cleanup                     # optional Claude correction
@@ -60,6 +60,7 @@ livekeet init                          # also --init
 livekeet config                        # also --config; prints path, not secrets
 livekeet devices                       # also --devices
 livekeet models
+livekeet diarizers                      # speaker models, strengths, DER and sources
 livekeet relabel meeting.md
 livekeet relabel meeting.md --rename 'Alice=Bob' --rename 'Bob=Alice'
 livekeet update --check
@@ -73,6 +74,28 @@ The model selected with `--model` is the model used; otherwise `[defaults].model
 Ctrl+C finishes queued transcription, speaker analysis, and remaining cleanup before saving. In an interactive terminal, recordings with system audio offer speaker renaming afterward. `--no-relabel` disables the prompt; redirected input never prompts. Relabeling supports collision-safe swaps, touches only speaker labels, and writes atomically. EOF or Ctrl+C during the prompt leaves the original intact.
 
 `update` follows the source checkout's tracked branch, refuses dirty or diverged checkouts, and never resets local changes. For a development binary, supply `--source /path/to/livekeet-mlx`. `--check` fetches Git history without installing. The Mac app updates separately through its Sparkle menu.
+
+## Speaker models
+
+Settings → Models → Speaker identification has the same curated picker as speech recognition: release information, strengths, tradeoffs, speaker limits, DER with its dataset/scoring conditions, and primary sources. `livekeet diarizers` shows the same catalog. Scores describe the original published evaluations, not measured Livekeet accuracy; a lower number from a different benchmark is not a direct comparison.
+
+| CLI engine | Model | Local implementation |
+| --- | --- | --- |
+| `sortformer` | Streaming Sortformer v2.1 (default) | Native Core ML, balanced 1.04-second input buffer, 4 speakers/channel |
+| `community-1` | pyannote Community-1 | Python batch pipeline, flexible speaker count |
+| `ls-eend` | LS-EEND DIHARD III | Native Core ML streaming, 10 speaker slots/channel |
+| `diarizen` | DiariZen Large-s80-v2 | Python batch pipeline, up to 20 speakers/channel |
+| `suplime` | SUPlime | Python batch pipeline |
+| `suplime-large` | SUPlime-L | Python batch pipeline, larger encoder |
+| `sortformer-v1` | Original Sortformer v1 | Legacy native MLX, 4 speakers/channel |
+| `pyannote` | pyannote 3.1 | Legacy Python batch pipeline |
+| `wespeaker` | WeSpeaker ResNet34 | Legacy Python/MLX chunk matching, 5 speakers/channel |
+
+Microphone and system audio keep independent speaker state. Native streaming engines update labels during recording and flush their final buffered audio at stop. Batch engines analyze the accumulated recording periodically and at stop; processing may take longer than live engines, especially on CPU. The transcript still uses speech/sentence segments, so word-perfect attribution during interruptions is not guaranteed.
+
+Use **Set up local speaker support** under the selected model, or `scripts/setup-python.sh speakers` to install all optional speaker environments. A single engine can be installed with `/usr/bin/python3 Sources/LivekeetCore/Resources/Python/setup_diarization.py ENGINE`. They live in `~/.local/share/livekeet/diarization/ENGINE` and are chosen automatically when present; otherwise the configured Python executable is used. Isolated environments keep DiariZen’s older pyannote fork separate from Community-1 and SUPlime. Speech and correction environments are unchanged.
+
+pyannote 3.1 and Community-1 require accepting their Hugging Face access conditions and setting `HF_TOKEN` or `[pyannote].token` in the CLI configuration. Audio inference stays local. The native Core ML models cache under `~/Library/Application Support/FluidAudio/Models`; Python and legacy MLX weights normally use the Hugging Face cache. DiariZen, SUPlime/SUPlime-L, and legacy Sortformer v1 have noncommercial model weights; the picker links their terms.
 
 ## Configuration and Mac app settings
 

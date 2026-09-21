@@ -10,6 +10,15 @@
       }
     },
     {
+      "identity" : "fluidaudio",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/FluidInference/FluidAudio.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "5343241cd8a7576890e50925dec666bafc89d324"
+      }
+    },
+    {
       "identity" : "mlx-audio-swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Blaizzy/mlx-audio-swift.git",

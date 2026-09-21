@@ -154,6 +154,7 @@ public actor Transcriber {
     private var transcriptSegments: [TranscriptSegment] = []
     private var recordingStartTime: Date?
     private var pythonDiarizer: PythonDiarizer?
+    private var nativeDiarizer: NativeStreamingDiarizer?
     private var helperErrorReported = false
     private var sortformerModel: SortformerModel?
     private var batchPassCount = 0
@@ -220,12 +221,17 @@ public actor Transcriber {
         try ModelCatalog.validateLanguage(config.speechLanguage, modelID: modelName)
         let backend = try ModelCatalog.backend(for: modelName)
         let shortName = modelName.split(separator: "/").last.map(String.init) ?? modelName
-        let diarEnabled = !config.disableDiarization && config.diarizationEngine == .sortformer
-        if !config.disableDiarization && config.diarizationEngine != .sortformer {
+        let diarEnabled = !config.disableDiarization && config.diarizationEngine == .sortformerV1
+        if !config.disableDiarization && config.diarizationEngine.needsPython {
             let helper = try PythonDiarizer(config: config)
             do { try await helper.prepare() }
             catch { await helper.stop(); throw error }
             self.pythonDiarizer = helper
+        }
+        if !config.disableDiarization && config.diarizationEngine.isNativeStreaming {
+            Log.info("Loading \(config.diarizationEngine.descriptor.displayName)...")
+            self.nativeDiarizer = try await NativeStreamingDiarizer(
+                engine: config.diarizationEngine, microphone: !config.systemOnly, system: !config.micOnly)
         }
         let loadStart = Date()
 
@@ -493,6 +499,17 @@ public actor Transcriber {
             sysPCM.append(chunk.system)
         }
 
+        if let nativeDiarizer {
+            do {
+                if !config.systemOnly { try await nativeDiarizer.feed(chunk.mic, channel: "mic") }
+                if !config.micOnly { try await nativeDiarizer.feed(chunk.system, channel: "system") }
+            } catch {
+                eventContinuation.yield(.warning("Speaker identification stopped: \(error.localizedDescription). Recording will be saved."))
+                stop()
+                return
+            }
+        }
+
         // Process mic and system channels
         let hasMic = !config.systemOnly
         let hasSys = !config.micOnly && !chunk.system.isEmpty
@@ -695,14 +712,20 @@ public actor Transcriber {
             do { speakerIndex = try await helper.identify(samples: segment.audio, channel: channel) }
             catch { reportHelperError(error) }
         }
-        let speaker = resolveSpeaker(channel: channel, speakerIndex: speakerIndex)
-
         let baseOffset: Float
         if let start = recordingStartTime {
             baseOffset = Float(segment.startTime.timeIntervalSince(start))
         } else {
             baseOffset = 0
         }
+
+        let liveTurns = await nativeDiarizer?.turns(channel: channel)
+        func resolvedIndex(at offset: Float) -> Int {
+            guard let liveTurns, !liveTurns.isEmpty else { return speakerIndex }
+            return resolveBatchSpeakerIndex(offsetSeconds: offset, channel: channel, turns: liveTurns)
+        }
+        let baseSpeakerIndex = resolvedIndex(at: baseOffset)
+        let speaker = resolveSpeaker(channel: channel, speakerIndex: baseSpeakerIndex)
 
         if let sentences = result.segments, !sentences.isEmpty {
             for sentence in sentences {
@@ -711,18 +734,20 @@ public actor Transcriber {
                 let trimmed = DeterministicCorrections.apply(TranscriptArtifactFilter.clean(sentenceText), replacements: config.corrections)
                 guard !trimmed.isEmpty else { continue }
                 let sentenceTime = segment.startTime.addingTimeInterval(sentenceStart)
+                let sentenceSpeakerIndex = resolvedIndex(at: baseOffset + Float(sentenceStart))
+                let sentenceSpeaker = resolveSpeaker(channel: channel, speakerIndex: sentenceSpeakerIndex)
                 let seg = TranscriptSegment(
                     offsetSeconds: baseOffset + Float(sentenceStart),
                     text: trimmed,
                     channel: channel,
                     timestamp: MarkdownWriter.formatTime(sentenceTime),
                     startTime: sentenceTime,
-                    speakerIndex: speakerIndex,
-                    speaker: speaker
+                    speakerIndex: sentenceSpeakerIndex,
+                    speaker: sentenceSpeaker
                 )
                 transcriptSegments.append(seg)
                 eventContinuation.yield(.segment(seg))
-                await writer.writeSegment(time: sentenceTime, speaker: speaker, text: trimmed)
+                await writer.writeSegment(time: sentenceTime, speaker: sentenceSpeaker, text: trimmed)
             }
         } else {
             let seg = TranscriptSegment(
@@ -731,7 +756,7 @@ public actor Transcriber {
                 channel: channel,
                 timestamp: MarkdownWriter.formatTime(segment.startTime),
                 startTime: segment.startTime,
-                speakerIndex: speakerIndex,
+                speakerIndex: baseSpeakerIndex,
                 speaker: speaker
             )
             transcriptSegments.append(seg)
@@ -771,9 +796,17 @@ public actor Transcriber {
     }
 
     private func runBatchDiarization(final isFinal: Bool) async {
+        if let nativeDiarizer {
+            do {
+                if isFinal { try await nativeDiarizer.finish() }
+                await rebuildTranscript(micTurns: await nativeDiarizer.turns(channel: "mic"),
+                                        sysTurns: await nativeDiarizer.turns(channel: "system"))
+            } catch { reportHelperError(error) }
+            return
+        }
         guard !transcriptSegments.isEmpty else { return }
         if config.diarizationEngine == .wespeaker { return }
-        if config.diarizationEngine == .pyannote {
+        if config.diarizationEngine.isBatch {
             guard let helper = pythonDiarizer else { return }
             var channels: [String: (path: URL, count: Int)] = [:]
             if !config.systemOnly { channels["mic"] = (micPCM.url, micPCM.sampleCount) }

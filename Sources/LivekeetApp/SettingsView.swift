@@ -15,6 +15,8 @@ struct SettingsView: View {
     @State private var customModelSelected = false
     @State private var installingSpeechSupport = false
     @State private var speechSetupMessage: String?
+    @State private var installingSpeakerSupport = false
+    @State private var speakerSetupMessage: String?
 
     var body: some View {
         @Bindable var settings = settings
@@ -125,6 +127,7 @@ struct SettingsView: View {
 
     private func modelsTab(settings: Bindable<AppSettings>) -> some View {
         Form {
+            Section("Speaker identification") { diarizationPicker(settings: settings) }
             Section("Speech recognition") { modelPicker(settings: settings) }
             Section("Apple SpeechAnalyzer · unavailable") {
                 Text("Introduced June 2025 · macOS 26 and later")
@@ -230,26 +233,66 @@ struct SettingsView: View {
         }
     }
 
-    private func advancedTab(settings: Bindable<AppSettings>) -> some View {
-        Form {
-            Section("Speaker Identification") {
-                Picker("Engine", selection: settings.diarizationEngine) {
-                    Text("Sortformer (native)").tag("sortformer")
-                    Text("WeSpeaker (Python)").tag("wespeaker")
-                    Text("pyannote (Python)").tag("pyannote")
-                }
-                .disabled(self.settings.disableDiarization)
-                if self.settings.diarizationEngine != "sortformer" {
-                    Text("Requires the optional Python helper. pyannote also needs a Hugging Face token in the CLI config.")
-                        .font(.caption).foregroundStyle(.secondary)
+    private func diarizationPicker(settings: Bindable<AppSettings>) -> some View {
+        let engine = DiarizationEngine(rawValue: self.settings.diarizationEngine) ?? .sortformer
+        let model = engine.descriptor
+        return VStack(alignment: .leading, spacing: 10) {
+            Picker("Speaker model", selection: settings.diarizationEngine) {
+                ForEach(DiarizationCatalog.models) { model in
+                    Text(model.displayName).tag(model.id)
                 }
             }
+            .onChange(of: self.settings.diarizationEngine) { _, _ in speakerSetupMessage = nil }
+            Text(model.subtitle).font(.subheadline.weight(.medium))
+            Text("Released \(model.release)").font(.caption).foregroundStyle(.secondary)
+            Text(model.strengths).font(.callout)
+            Text(model.tradeoffs).font(.caption).foregroundStyle(.secondary)
+            Divider()
+            Text(model.benchmark).font(.callout)
+            DisclosureGroup("What does DER mean?") {
+                Text(DiarizationCatalog.benchmarkExplanation).font(.caption).foregroundStyle(.secondary)
+            }
+            Link("Model details and published results ↗", destination: model.source).font(.caption)
+            Text(model.requirements).font(.caption).foregroundStyle(.secondary)
+            if engine.needsPython {
+                Button(installingSpeakerSupport ? "Installing local support…" : "Set up local speaker support") {
+                    installingSpeakerSupport = true
+                    speakerSetupMessage = nil
+                    let selectedEngine = engine
+                    Task {
+                        do {
+                            try await DiarizationHelperSetup.install(selectedEngine)
+                            speakerSetupMessage = "Support for \(selectedEngine.descriptor.displayName) is ready. Model weights download on first recording."
+                        } catch { speakerSetupMessage = error.localizedDescription }
+                        installingSpeakerSupport = false
+                    }
+                }
+                .disabled(installingSpeakerSupport)
+                if let speakerSetupMessage {
+                    Text(speakerSetupMessage).font(.caption).textSelection(.enabled)
+                } else if DiarizationHelperSetup.isInstalled(engine) {
+                    Text("Local support is installed.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if self.settings.disableDiarization {
+                Text("Speaker identification is off. Turn on Identify individual speakers in General to use this model.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Text("Changes apply to new recordings. Audio is processed on your Mac. Results checked September 2026.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 6)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func advancedTab(settings: Bindable<AppSettings>) -> some View {
+        Form {
             Section("Python Helper") {
                 TextField("Python executable", text: settings.pythonExecutable)
                     .textFieldStyle(.roundedBorder)
                 TextField("Speech Python (optional)", text: settings.speechPythonExecutable)
                     .textFieldStyle(.roundedBorder)
-                Text("Speech models can use a separate environment. Leave it empty to use the Python executable above for all helpers. Use absolute paths when launching from Finder.")
+                Text("Speaker models set up from Models use their own isolated environments. Speech models can also use a separate environment. Leave it empty to use the Python executable above for all helpers. Use absolute paths when launching from Finder.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Audio") {

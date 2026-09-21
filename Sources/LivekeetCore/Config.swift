@@ -1,10 +1,6 @@
 import Foundation
 import TOMLKit
 
-public enum DiarizationEngine: String, CaseIterable, Sendable {
-    case sortformer, wespeaker, pyannote
-}
-
 // MARK: - LivekeetConfig
 
 public struct LivekeetConfig: Sendable {
@@ -169,7 +165,7 @@ public struct LivekeetConfig: Sendable {
         case invalidEngine(String), invalidTimeout
         public var errorDescription: String? {
             switch self {
-            case .invalidEngine(let value): return "Unknown diarization engine '\(value)'; choose sortformer, wespeaker, or pyannote."
+            case .invalidEngine(let value): return "Unknown diarization engine '\(value)'; choose \(DiarizationEngine.allCases.map(\.rawValue).joined(separator: ", "))."
             case .invalidTimeout: return "cleanup.timeout_s must be a positive finite number."
             }
         }
@@ -227,7 +223,7 @@ public struct LivekeetConfig: Sendable {
     # Required for Cohere and Canary; ISO code, e.g. es or en.
     # language = "es"
     diarize = false
-    engine = "sortformer" # sortformer (native), wespeaker, or pyannote
+    engine = "sortformer" # Streaming Sortformer v2.1; see livekeet diarizers
     # device = "MacBook Pro Microphone" # name, UID, or --devices index
 
     [cleanup]

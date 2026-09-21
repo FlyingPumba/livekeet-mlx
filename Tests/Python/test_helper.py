@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 path = Path(__file__).parents[2] / 'Sources/LivekeetCore/Resources/Python/diarize.py'
 spec = importlib.util.spec_from_file_location('helper', path)
@@ -46,6 +47,26 @@ class HelperProtocolTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn('error', replies[1])
         self.assertEqual(replies[2], {'speaker': 2})
+
+
+class AnnotationNormalizationTests(unittest.TestCase):
+    @staticmethod
+    def annotation(rows):
+        return SimpleNamespace(itertracks=lambda **_: ((SimpleNamespace(start=s, end=e), None, label) for s, e, label in rows))
+
+    def test_legacy_and_current_outputs_preserve_timestamps_and_speakers(self):
+        annotation = self.annotation([(2, 3, "b"), (-0.1, 1, "a"), (4, 6, "a")])
+        expected = [{"start": 0, "end": 1, "speaker": 0}, {"start": 2, "end": 3, "speaker": 1}, {"start": 4, "end": 5, "speaker": 0}]
+        for result in [annotation, SimpleNamespace(speaker_diarization=annotation), SimpleNamespace(exclusive_speaker_diarization=annotation)]:
+            self.assertEqual(helper.serialize_turns(result, 5), expected)
+
+    def test_empty_exclusive_output_does_not_fall_back_to_overlapping_output(self):
+        result = SimpleNamespace(exclusive_speaker_diarization=self.annotation([]), speaker_diarization=self.annotation([(0, 2, 'a')]))
+        self.assertEqual(helper.serialize_turns(result, 3), [])
+
+    def test_nonfinite_model_output_is_an_error(self):
+        with self.assertRaises(ValueError):
+            helper.serialize_turns(self.annotation([(0, float('nan'), 'a')]), 3)
 
 
 if __name__ == '__main__':

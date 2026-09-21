@@ -4,8 +4,20 @@ set -euo pipefail
 VENV="${LIVEKEET_PYTHON_ENV:-$HOME/.local/share/livekeet/python}"
 ENGINE="${1:-all}"
 case "$ENGINE" in
+  community-1|ls-eend|diarizen|suplime|suplime-large)
+    if [[ "$ENGINE" == ls-eend ]]; then echo 'LS-EEND is native; no Python support is needed.'; exit 0; fi
+    exec /usr/bin/python3 "$(dirname "$0")/../Sources/LivekeetCore/Resources/Python/setup_diarization.py" "$ENGINE"
+    ;;
+  speakers)
+    for speaker_engine in wespeaker pyannote community-1 diarizen suplime suplime-large; do
+      /usr/bin/python3 "$(dirname "$0")/../Sources/LivekeetCore/Resources/Python/setup_diarization.py" "$speaker_engine"
+    done
+    exit 0
+    ;;
+esac
+case "$ENGINE" in
   all|wespeaker|pyannote|cleanup|speech) ;;
-  *) echo 'Usage: scripts/setup-python.sh [all|wespeaker|pyannote|cleanup|speech]' >&2; exit 2 ;;
+  *) echo 'Usage: scripts/setup-python.sh [all|wespeaker|pyannote|community-1|diarizen|suplime|suplime-large|speakers|cleanup|speech]' >&2; exit 2 ;;
 esac
 command -v uv >/dev/null || { echo 'Install uv first: https://docs.astral.sh/uv/' >&2; exit 1; }
 if [[ ! -x "$VENV/bin/python" ]]; then uv venv --python 3.12 "$VENV"; fi
