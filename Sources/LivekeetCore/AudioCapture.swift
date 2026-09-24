@@ -151,9 +151,28 @@ public enum CaptureError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .noDisplay: return "No display found"
-        case .microphonePermissionDenied: return "Microphone permission not granted"
-        case .screenCapturePermissionDenied: return "Screen recording permission not granted"
+        case .microphonePermissionDenied: return "Microphone access is blocked. Allow access in System Settings → Privacy & Security → Microphone, then reopen the app."
+        case .screenCapturePermissionDenied: return "System audio access is blocked. Allow access in System Settings → Privacy & Security → Screen & System Audio Recording, then reopen the app."
         }
+    }
+
+    public var privacySettingsURL: URL? {
+        switch self {
+        case .microphonePermissionDenied:
+            URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+        case .screenCapturePermissionDenied:
+            URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        case .noDisplay:
+            nil
+        }
+    }
+
+    static func translatingScreenCaptureError(_ error: Error) -> Error {
+        let error = error as NSError
+        if error.domain == SCStreamErrorDomain && error.code == SCStreamError.Code.userDeclined.rawValue {
+            return CaptureError.screenCapturePermissionDenied
+        }
+        return error
     }
 }
 
@@ -254,19 +273,23 @@ public final class AudioCapture: @unchecked Sendable {
         }
 
         if !micOnly {
-            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-            guard let display = content.displays.first else {
-                throw CaptureError.noDisplay
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+                guard let display = content.displays.first else {
+                    throw CaptureError.noDisplay
+                }
+
+                let config = makeStreamConfig()
+                let filter = SCContentFilter(display: display, excludingWindows: [])
+
+                outputHandler = StreamOutputHandler(capture: self)
+                stream = SCStream(filter: filter, configuration: config, delegate: outputHandler)
+                try stream?.addStreamOutput(outputHandler!, type: .audio, sampleHandlerQueue: audioSampleQueue)
+                try stream?.addStreamOutput(outputHandler!, type: .screen, sampleHandlerQueue: screenDropQueue)
+                try await stream?.startCapture()
+            } catch {
+                throw CaptureError.translatingScreenCaptureError(error)
             }
-
-            let config = makeStreamConfig()
-            let filter = SCContentFilter(display: display, excludingWindows: [])
-
-            outputHandler = StreamOutputHandler(capture: self)
-            stream = SCStream(filter: filter, configuration: config, delegate: outputHandler)
-            try stream?.addStreamOutput(outputHandler!, type: .audio, sampleHandlerQueue: audioSampleQueue)
-            try stream?.addStreamOutput(outputHandler!, type: .screen, sampleHandlerQueue: screenDropQueue)
-            try await stream?.startCapture()
         }
 
         if !systemOnly && !micPermissionDenied {

@@ -171,7 +171,10 @@ struct ContentView: View {
                         Text(error)
                             .font(.caption)
                             .foregroundStyle(.red)
-                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let url = viewModel.permissionSettingsURL {
+                            Button("Open System Settings") { NSWorkspace.shared.open(url) }
+                        }
                     }
                     if let path = viewModel.savedFilePath {
                         Image(systemName: "doc.text.fill")
@@ -229,6 +232,7 @@ struct ContentView: View {
         viewModel.savedFilePath = nil
         viewModel.segments = []
         viewModel.errorMessage = nil
+        viewModel.permissionSettingsURL = nil
         viewModel.otherNames = ""
     }
 

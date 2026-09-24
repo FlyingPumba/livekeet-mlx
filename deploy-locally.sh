@@ -4,11 +4,11 @@ set -euo pipefail
 cd "$(dirname "$0")"
 DESTINATION="${LIVEKEET_APP_DESTINATION:-/Applications/Livekeet.app}"
 
-make build-app SIGNING_IDENTITY="${SIGNING_IDENTITY:--}"
 if pgrep -x LivekeetApp >/dev/null; then
   echo 'Quit Livekeet before installing so an active recording cannot be interrupted.' >&2
   exit 1
 fi
+make build-app SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
 mkdir -p "$(dirname "$DESTINATION")"
 STAGING=$(mktemp -d "$(dirname "$DESTINATION")/.livekeet-install.XXXXXX")
 trap 'rm -rf "$STAGING"' EXIT

@@ -8,7 +8,7 @@ APP_NAME := Livekeet
 BUNDLE_ID := com.livekeet.app
 VERSION ?= $(shell /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Sources/LivekeetApp/Info.plist)
 BUILD_NUMBER ?= 1
-SIGNING_IDENTITY ?= -
+SIGNING_IDENTITY ?=
 RELEASE_SIGNING_IDENTITY ?= Developer ID Application
 ENTITLEMENTS := $(CURDIR)/Sources/LivekeetApp/LivekeetApp.entitlements
 INFO_PLIST := $(CURDIR)/Sources/LivekeetApp/Info.plist
@@ -46,7 +46,7 @@ run-app: build-app
 
 build-release-app:
 	$(SWIFT) build -c release --product LivekeetApp
-	@$(MAKE) _bundle DIR=$(SPM_RELEASE_DIR) SIGN_ID="$(RELEASE_SIGNING_IDENTITY)"
+	@$(MAKE) _bundle DIR=$(SPM_RELEASE_DIR) SIGN_ID="$(RELEASE_SIGNING_IDENTITY)" HARDENED_RUNTIME=1
 	@echo "Built $(APP_NAME).app (release)"
 
 # --- Shared bundle creation ---
@@ -81,14 +81,14 @@ _bundle:
 	@cp -R $(SPARKLE_FRAMEWORK) $(DIR)/$(APP_NAME).app/Contents/Frameworks/
 	@install_name_tool -add_rpath @loader_path/../Frameworks \
 		$(DIR)/$(APP_NAME).app/Contents/MacOS/LivekeetApp
-	@# Hardened runtime requires team-signed dependencies. Ad-hoc local builds have no team.
-	@if [ "$(SIGN_ID)" = "-" ]; then \
-		codesign --force --deep --sign - --entitlements $(ENTITLEMENTS) $(DIR)/$(APP_NAME).app; \
-	else \
+	@# Use a persistent local certificate; release builds require team-signed dependencies.
+	@if [ "$(HARDENED_RUNTIME)" = "1" ]; then \
 		codesign --force --deep --options runtime --sign "$(SIGN_ID)" \
 			$(DIR)/$(APP_NAME).app/Contents/Frameworks/Sparkle.framework; \
 		codesign --force --deep --options runtime --sign "$(SIGN_ID)" \
 			--entitlements $(ENTITLEMENTS) $(DIR)/$(APP_NAME).app; \
+	else \
+		SIGNING_IDENTITY="$(SIGN_ID)" bash scripts/sign-local-app.sh "$(DIR)/$(APP_NAME).app" "$(ENTITLEMENTS)"; \
 	fi
 	@codesign --verify --deep --strict $(DIR)/$(APP_NAME).app
 

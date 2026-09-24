@@ -13,7 +13,7 @@ make build
 .build/debug/livekeet --help
 .build/debug/livekeet record --help
 
-make build-app                      # local, ad-hoc signed app
+make build-app                      # local app with a persistent signing identity
 open .build/debug/Livekeet.app
 
 ./deploy-locally.sh                  # build, install in /Applications, open
@@ -22,8 +22,24 @@ make test
 python3 -m unittest discover -s Tests/Python -v
 ```
 
-Local builds use ad-hoc signing without hardened runtime, matching the Set app's
-local setup. Release builds use `RELEASE_SIGNING_IDENTITY` and hardened runtime.
+Local builds use a persistent signing certificate without hardened runtime. If
+there is exactly one valid Code Signing identity in your keychain, the first
+successful build selects it. Otherwise set `SIGNING_IDENTITY` to the certificate
+name or SHA-1 reported by `security find-identity -v -p codesigning`. An Apple
+Development certificate or a local Code Signing certificate works for development.
+The selected fingerprint is saved in `~/.config/livekeet/signing-identity` (under
+`XDG_CONFIG_HOME` when set), so updates keep the same identity. Builds fail if that
+certificate becomes unavailable instead of silently changing identity. To change
+it deliberately, set `SIGNING_IDENTITY` again. Release builds use
+`RELEASE_SIGNING_IDENTITY` and hardened runtime.
+
+Ad-hoc signing (`SIGNING_IDENTITY=- make build-app`) is available explicitly for
+disposable builds, but its identity changes with the app binary and macOS can
+reject previously granted permissions. Switching from an old ad-hoc build to a
+certificate requires granting permissions once again. If Screen Recording is
+already enabled but capture is denied, toggle Livekeet off and on in System
+Settings → Privacy & Security → Screen & System Audio Recording, then quit and
+reopen Livekeet. Microphone permission is listed separately under Microphone.
 `deploy-locally.sh` asks you to quit a running Livekeet before replacing it so it
 cannot interrupt a recording. Set `LIVEKEET_APP_DESTINATION` to install elsewhere.
 

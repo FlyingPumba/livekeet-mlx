@@ -19,6 +19,7 @@ final class TranscriptViewModel {
     var isLoading = false
     var isStopping = false
     var errorMessage: String?
+    var permissionSettingsURL: URL?
     var savedFilePath: String?
     var recordingID: UUID?
 
@@ -50,6 +51,7 @@ final class TranscriptViewModel {
         isLoading = true
         isStopping = false
         errorMessage = nil
+        permissionSettingsURL = nil
         savedFilePath = nil
         recordingID = nil
         segments = []
@@ -82,6 +84,7 @@ final class TranscriptViewModel {
                 self.stopDebugPolling()
             } catch {
                 self.errorMessage = error.localizedDescription
+                self.permissionSettingsURL = (error as? CaptureError)?.privacySettingsURL
                 self.isLoading = false
                 self.isRecording = false
                 self.isStopping = false
