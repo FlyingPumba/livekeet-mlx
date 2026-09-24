@@ -107,6 +107,8 @@ Settings → Models → Speaker identification has the same curated picker as sp
 | `pyannote` | pyannote 3.1 | Legacy Python batch pipeline |
 | `wespeaker` | WeSpeaker ResNet34 | Legacy Python/MLX chunk matching, 5 speakers/channel |
 
+Speaker labels group voices; they do not verify personal identity. The first microphone speaker uses your configured name ("Me" by default); additional microphone voices use "Local 2", "Local 3", etc. Live labels can be revised as the model receives more audio. If a later pass has no matching speaker turn, the existing label is retained.
+
 Microphone and system audio keep independent speaker state. Native streaming engines update labels during recording and flush their final buffered audio at stop. Batch engines analyze the accumulated recording periodically and at stop; processing may take longer than live engines, especially on CPU. The transcript still uses speech/sentence segments, so word-perfect attribution during interruptions is not guaranteed.
 
 Use **Set up local speaker support** under the selected model, or `scripts/setup-python.sh speakers` to install all optional speaker environments. A single engine can be installed with `/usr/bin/python3 Sources/LivekeetCore/Resources/Python/setup_diarization.py ENGINE`. They live in `~/.local/share/livekeet/diarization/ENGINE` and are chosen automatically when present; otherwise the configured Python executable is used. Isolated environments keep DiariZen’s older pyannote fork separate from Community-1 and SUPlime. Speech and correction environments are unchanged.

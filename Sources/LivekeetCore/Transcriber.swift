@@ -722,7 +722,7 @@ public actor Transcriber {
         let liveTurns = await nativeDiarizer?.turns(channel: channel)
         func resolvedIndex(at offset: Float) -> Int {
             guard let liveTurns, !liveTurns.isEmpty else { return speakerIndex }
-            return resolveBatchSpeakerIndex(offsetSeconds: offset, channel: channel, turns: liveTurns)
+            return SpeakerAssignment.resolve(offsetSeconds: offset, turns: liveTurns, fallback: speakerIndex)
         }
         let baseSpeakerIndex = resolvedIndex(at: baseOffset)
         let speaker = resolveSpeaker(channel: channel, speakerIndex: baseSpeakerIndex)
@@ -879,10 +879,10 @@ public actor Transcriber {
     ) async {
         let resolved = transcriptSegments.map { seg -> TranscriptSegment in
             let turns = seg.channel == "mic" ? micTurns : sysTurns
-            let idx = resolveBatchSpeakerIndex(
+            let idx = SpeakerAssignment.resolve(
                 offsetSeconds: seg.offsetSeconds,
-                channel: seg.channel,
-                turns: turns
+                turns: turns,
+                fallback: seg.speakerIndex
             )
             return TranscriptSegment(
                 offsetSeconds: seg.offsetSeconds,
@@ -897,37 +897,6 @@ public actor Transcriber {
         // Update stored segments with resolved speakers
         transcriptSegments = resolved
         await rewriteAndNotify()
-    }
-
-    private func resolveBatchSpeakerIndex(
-        offsetSeconds: Float,
-        channel: String,
-        turns: [DiarizationSegment]
-    ) -> Int {
-        // 1. Find containing turn
-        for turn in turns {
-            if offsetSeconds >= turn.start && offsetSeconds <= turn.end {
-                return turn.speaker
-            }
-        }
-
-        // 2. Find closest turn midpoint within 2 seconds
-        var bestDistance: Float = .infinity
-        var bestSpeaker: Int?
-        for turn in turns {
-            let midpoint = (turn.start + turn.end) / 2
-            let distance = abs(offsetSeconds - midpoint)
-            if distance < 2.0 && distance < bestDistance {
-                bestDistance = distance
-                bestSpeaker = turn.speaker
-            }
-        }
-        if let speaker = bestSpeaker {
-            return speaker
-        }
-
-        // 3. Fall back to default index
-        return 0
     }
 
     // MARK: - LLM Transcript Correction
