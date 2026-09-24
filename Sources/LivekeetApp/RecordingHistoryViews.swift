@@ -88,8 +88,7 @@ struct RecordingHistorySidebar: View {
                     .padding(.vertical, 4)
                     .tag(recording.id)
                     .contextMenu {
-                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([recording.transcriptURL]) }
-                            .disabled(!recording.isAvailable)
+                        CopyTextButton("Copy full path", text: recording.transcriptURL.path)
                         Button("Locate transcript…") { Task { await history.locate(recording) } }
                             .disabled(recording.status == .unfinished)
                         if !history.projects.isEmpty {
@@ -196,10 +195,11 @@ struct SavedRecordingView: View {
                 Text(recording.transcriptURL.path).font(.caption).foregroundStyle(.secondary)
                     .textSelection(.enabled).lineLimit(2).truncationMode(.middle)
                 HStack {
-                    Button("Open transcript") { NSWorkspace.shared.open(recording.transcriptURL) }
-                        .disabled(!recording.isAvailable)
-                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([recording.transcriptURL]) }
-                        .disabled(!recording.isAvailable)
+                    CopyTextButton("Copy transcript", text: content)
+                        .disabled(loading || readError != nil)
+                        .help("Copy the entire Markdown transcript, including speakers and timestamps.")
+                    CopyTextButton("Copy full path", text: recording.transcriptURL.path)
+                        .help("Copy the full path to the Markdown file.")
                     if let audio = recording.audioDirectory, FileManager.default.fileExists(atPath: audio.url.path) {
                         Button("Open audio folder") { NSWorkspace.shared.open(audio.url) }
                     }
@@ -218,12 +218,20 @@ struct SavedRecordingView: View {
                     Text(readError).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     Button("Locate transcript…") { Task { await history.locate(recording) } }
                 }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if TranscriptDocument(content: content).bodyText.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "text.bubble").font(.largeTitle).foregroundStyle(.secondary)
+                    Text("No speech transcribed").font(.headline)
+                    Text("This meeting has no transcript text.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        let lines = TranscriptDocument(content: content).lines
+                        let document = TranscriptDocument(content: content)
+                        let lines = document.lines
                         if lines.isEmpty {
-                            Text(content).font(.body).textSelection(.enabled)
+                            Text(document.bodyText).font(.body).textSelection(.enabled)
                         } else {
                             ForEach(lines) { line in
                                 VStack(alignment: .leading, spacing: 5) {
@@ -241,8 +249,9 @@ struct SavedRecordingView: View {
             }
         }
         .background(Color(nsColor: .textBackgroundColor))
-        .task(id: recording.transcriptURL) {
+        .task(id: recording) {
             loading = true
+            content = ""
             readError = nil
             let url = recording.transcriptURL
             do {
@@ -262,5 +271,33 @@ struct SavedRecordingView: View {
     private func duration(_ seconds: TimeInterval) -> String {
         let minutes = max(0, Int(seconds)) / 60
         return minutes > 0 ? "\(minutes) min" : "\(max(0, Int(seconds))) sec"
+    }
+}
+
+/// The confirmation reflects a successful pasteboard write and resets between meetings.
+private struct CopyTextButton: View {
+    let title: String
+    let text: String
+    @State private var copied = false
+
+    init(_ title: String, text: String) {
+        self.title = title
+        self.text = text
+    }
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            copied = NSPasteboard.general.setString(text, forType: .string)
+        } label: {
+            Label(copied ? "Copied" : title, systemImage: copied ? "checkmark" : "doc.on.doc")
+        }
+        .onChange(of: text) { _, _ in copied = false }
+        .task(id: copied) {
+            guard copied else { return }
+            do { try await Task.sleep(for: .seconds(2)) }
+            catch { return }
+            copied = false
+        }
     }
 }

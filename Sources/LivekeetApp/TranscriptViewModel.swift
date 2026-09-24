@@ -75,6 +75,8 @@ final class TranscriptViewModel {
                 self.isLoading = false
                 if self.isStopping { await t.stop() }
                 try await t.run()
+                // Consume the final rewrite and saved path before leaving the live view.
+                await eventTask?.value
                 self.isRecording = false
                 self.isStopping = false
                 self.stopDebugPolling()

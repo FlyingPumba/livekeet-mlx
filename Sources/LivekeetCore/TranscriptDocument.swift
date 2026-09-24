@@ -7,7 +7,7 @@ public struct TranscriptLine: Identifiable, Sendable {
     public let text: String
 }
 
-/// Edits only timestamped speaker labels, preserving transcript text and metadata.
+/// Reads transcript text and edits timestamped speaker labels without changing metadata.
 public struct TranscriptDocument {
     public let content: String
     private static let linePattern = try! NSRegularExpression(
@@ -15,6 +15,17 @@ public struct TranscriptDocument {
     )
 
     public init(content: String) { self.content = content }
+
+    /// Excludes only Livekeet's generated heading and footer, so empty meetings can
+    /// have an empty state while unrecognized transcript text remains readable.
+    public var bodyText: String {
+        content
+            .replacingOccurrences(of: #"\A# Transcription - \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\r?\n"#,
+                                  with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(?:\r?\n)?---\r?\n\*Ended: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\*[\s]*\z"#,
+                                  with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     public var lines: [TranscriptLine] {
         let source = content as NSString

@@ -24,9 +24,10 @@ struct ContentView: View {
             }
         } detail: {
             if let id = selectedRecordingID,
-               id != viewModel.recordingID,
+               id != viewModel.recordingID || (!viewModel.isRecording && viewModel.savedFilePath != nil),
                let recording = history.recordings.first(where: { $0.id == id }) {
                 SavedRecordingView(recording: recording)
+                    .id(recording.id)
             } else {
                 recordingPane
             }
@@ -182,12 +183,6 @@ struct ContentView: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .textSelection(.enabled)
-                            .onTapGesture {
-                                NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: "")
-                            }
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                            }
                     }
                     Spacer()
                 }

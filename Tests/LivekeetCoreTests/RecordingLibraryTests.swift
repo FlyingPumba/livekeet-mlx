@@ -125,4 +125,27 @@ final class RecordingLibraryTests: XCTestCase {
         XCTAssertEqual(lines[0].speaker, "Iván")
         XCTAssertEqual(lines[0].text, "Hola 👋")
     }
+
+    func testEmptyTranscriptHidesGeneratedMetadataWithoutChangingCopyContent() {
+        let header = "# Transcription - 2026-09-24 21:27:56\n\n"
+        let footer = "\n---\n*Ended: 2026-09-24 21:28:00*\n"
+        for content in ["", header, header + footer, (header + footer).replacingOccurrences(of: "\n", with: "\r\n")] {
+            let document = TranscriptDocument(content: content)
+            XCTAssertTrue(document.lines.isEmpty)
+            XCTAssertTrue(document.bodyText.isEmpty)
+            XCTAssertEqual(document.content, content)
+        }
+    }
+
+    func testTranscriptBodyPreservesSpeechAndUnrecognizedText() {
+        let header = "# Transcription - 2026-09-24 21:27:56\n\n"
+        let footer = "\n---\n*Ended: 2026-09-24 21:28:00*\n"
+        for body in ["[21:27:58] **Iván**: Hola 👋", "Notes preserved from an older transcript.\nAnother line."] {
+            let content = header + body + footer
+            let document = TranscriptDocument(content: content)
+            XCTAssertEqual(document.bodyText, body)
+            XCTAssertEqual(document.content, content)
+        }
+    }
+
 }
